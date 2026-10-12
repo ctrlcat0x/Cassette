@@ -59,6 +59,15 @@ jobs:
       - name: Build release
         run: cargo build --release --locked --bin cassette
 
+      - name: Smoke test native executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          executable=target/release/cassette
+          if [[ "$RUNNER_OS" == Windows ]]; then executable+=.exe; fi
+          "$executable" --quit > smoke.log 2>&1
+          if [[ -s smoke.log ]]; then cat smoke.log; exit 1; fi
+
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -128,7 +137,14 @@ jobs:
           cp README.md assets/fonts/*OFL.txt assets/icons/HUGEICONS-LICENSE.txt "$root/usr/share/doc/cassette/"
           cp assets/icons/LICENSE "$root/usr/share/doc/cassette/ICONS-LICENSE"
           mkdir -p debian "$root/DEBIAN"
-          touch debian/control
+          cat > debian/control <<EOF
+          Source: cassette
+          Maintainer: ctrlcat0x <developer.sahilrana@gmail.com>
+
+          Package: cassette
+          Architecture: any
+          Description: Native desktop music player built with Rust and GPUI
+          EOF
           dependencies=$(dpkg-shlibdeps -O target/release/cassette | sed 's/^shlibs:Depends=//')
           cat > "$root/DEBIAN/control" <<EOF
           Package: cassette
