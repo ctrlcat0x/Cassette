@@ -260,7 +260,11 @@ fn client() -> Result<&'static Client> {
                     attempt.stop()
                 }
             }))
-            .user_agent("Cassette/0.1.0 (app://app.raag.desktop)")
+            .user_agent(concat!(
+                "Cassette/",
+                env!("CARGO_PKG_VERSION"),
+                " (app://app.raag.desktop)"
+            ))
             .build()?;
         let _ = HTTP.set(value);
     }

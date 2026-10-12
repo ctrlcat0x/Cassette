@@ -36,6 +36,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          test "${RELEASE_TAG#v}" = "$version"
+
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -77,6 +86,7 @@ jobs:
           Copy-Item target/release/cassette.exe, LICENSE, README.md dist/stage
           Copy-Item assets/fonts/*OFL.txt, assets/icons/HUGEICONS-LICENSE.txt dist/stage
           Copy-Item assets/icons/LICENSE dist/stage/ICONS-LICENSE
+          Copy-Item target/release/cassette.exe dist/cassette-windows-x64.exe
           Compress-Archive -Path dist/stage/* -DestinationPath dist/cassette-windows-x64.zip
 
       - name: Package macOS
@@ -85,6 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          version=${version%%-*}
           app=dist/stage/Cassette.app
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" dist/icon.iconset
           cp target/release/cassette "$app/Contents/MacOS/"
@@ -129,6 +140,7 @@ jobs:
         run: |
           set -euo pipefail
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          version=${version/-/~}
           root=dist/package
           install -Dm755 target/release/cassette "$root/usr/bin/cassette"
           install -Dm644 packaging/cassette.desktop "$root/usr/share/applications/cassette.desktop"
@@ -166,8 +178,66 @@ jobs:
         with:
           name: cassette-${{ matrix.platform }}
           path: |
+            dist/*.exe
             dist/*.zip
             dist/*.dmg
             dist/*.deb
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cassette-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish downloads and release notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          prerelease=false
+          latest=true
+          if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=true; latest=false; fi
+          assets=(dist/cassette-windows-x64.exe dist/cassette-macos-arm64.dmg dist/cassette-linux-x64.deb)
+          for asset in "${assets[@]}"; do test -s "$asset"; done
+          cat > release-notes.md <<'EOF'
+          Cassette is a native desktop music player built with Rust and GPUI.
+
+          ### Features
+          - Browse and search YouTube Music, with optional account library sync.
+          - Play local music, manage playlists and queues, and save favourites.
+          - Synced lyrics, themes, equalizer, and system media controls.
+
+          ### Downloads
+          - **Windows x64:** `cassette-windows-x64.exe` — portable application.
+          - **macOS Apple Silicon:** `cassette-macos-arm64.dmg` — drag Cassette into Applications.
+          - **Linux x64:** `cassette-linux-x64.deb` — built on Ubuntu 24.04; install with `sudo apt install ./cassette-linux-x64.deb`.
+
+          ### Before you start
+          Playback tools are not bundled. Install mpv, yt-dlp, and Deno, then configure their paths in Settings if needed. Google sign-in on Windows requires the Microsoft Edge WebView2 Runtime. macOS builds are ad-hoc signed and are not notarized.
+
+          All three builds pass formatting, Clippy, native executable startup checks, and packaging validation. Please test playback and sign-in on your device and report problems through GitHub Issues.
+          EOF
+          if [[ "$prerelease" == true ]]; then
+            printf '\nThis is a beta prerelease. Features and provider integrations may change.\n' >> release-notes.md
+          fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" --verify-tag --draft \
+              --title "Cassette $RELEASE_TAG" --notes-file release-notes.md
+          fi
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease="$prerelease" --latest="$latest" \
+            --title "Cassette $RELEASE_TAG" --notes-file release-notes.md

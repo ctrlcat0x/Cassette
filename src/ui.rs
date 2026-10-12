@@ -4525,7 +4525,11 @@ impl Raag {
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child("Version 0.1.0 · Built with Rust and GPUI · Icons by Iconoir"),
+                            .child(concat!(
+                                "Version ",
+                                env!("CARGO_PKG_VERSION"),
+                                " · Built with Rust and GPUI · Icons by Iconoir"
+                            )),
                     ),
             );
         self.scroll
