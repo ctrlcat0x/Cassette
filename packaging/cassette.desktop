@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Cassette
+Comment=Find your frequency
+Exec=cassette %u
+MimeType=x-scheme-handler/cassette;
+Icon=cassette
+Categories=AudioVideo;Audio;Player;
+Terminal=false
+StartupWMClass=app.raag.desktop

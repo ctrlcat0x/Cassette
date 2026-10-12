@@ -1,0 +1,65 @@
+[package]
+name = "raag"
+version = "0.1.0"
+edition = "2024"
+description = "A native, keyboard-friendly music player built with Rust and GPUI"
+license = "MIT"
+
+[[bin]]
+name = "cassette"
+path = "src/main.rs"
+
+[features]
+allocation-profile = []
+bundled-runtime = []
+
+[dependencies]
+gpui-kit = "=0.7.1"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+roxmltree = "0.21"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "gzip"] }
+directories = "6"
+rand = "0.9"
+sha1 = "0.10"
+httpdate = "1"
+base64 = "0.22"
+des = "0.8"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+wry = "=0.57.0"
+tao = "=0.37.1"
+tempfile = "3"
+cookie = "0.18"
+zeroize = { version = "1", features = ["derive"] }
+tray-icon = { version = "=0.26.1", default-features = false }
+auto-launch = "=0.6.0"
+raw-window-handle = "0.6.2"
+souvlaki = { version = "=0.8.3", default-features = false, features = ["use_zbus"] }
+lofty = "0.22"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+flate2 = "1"
+sha2 = "0.10"
+windows-sys = { version = "0.61", features = ["Win32_Security_Cryptography", "Win32_System_Memory", "Win32_Security_Authorization", "Win32_UI_WindowsAndMessaging", "Win32_Storage_FileSystem"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "=3.6.3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "=3.6.3", features = ["sync-secret-service", "crypto-rust"] }
+tray-icon = { version = "=0.26.1", default-features = false, features = ["ksni"] }
+x11rb = { version = "0.13", default-features = false, features = ["allow-unsafe-code"] }
+
+[build-dependencies]
+winresource = "0.1.31"
+flate2 = "1"
+sha2 = "0.10"
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
