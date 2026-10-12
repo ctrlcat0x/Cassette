@@ -140,7 +140,7 @@ jobs:
         run: |
           set -euo pipefail
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
-          version=${version/-/~}
+          version=${version/-/\~}
           root=dist/package
           install -Dm755 target/release/cassette "$root/usr/bin/cassette"
           install -Dm644 packaging/cassette.desktop "$root/usr/share/applications/cassette.desktop"
