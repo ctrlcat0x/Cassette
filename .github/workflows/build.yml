@@ -1,49 +1,157 @@
 name: Native builds
+
 on:
   workflow_dispatch:
   push:
+    branches: [main]
+    tags: ['v*']
   pull_request:
+
 permissions:
   contents: read
+
+concurrency:
+  group: native-builds-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+
 jobs:
-  windows:
-    runs-on: windows-latest
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-2022
+          - platform: macos-arm64
+            runner: macos-15
+          - platform: linux-x64
+            runner: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake pkg-config dpkg-dev libasound2-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libxrandr-dev libxi-dev libfontconfig1-dev libssl-dev libvulkan-dev libegl1-mesa-dev libgl1-mesa-dev libwebkit2gtk-4.1-dev libgtk-3-dev libdbus-1-dev
+
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: ./scripts/install-playback-tools.ps1
-        shell: pwsh
-      - run: python scripts/collect-licenses.py
-      - run: ./scripts/package-windows.ps1
-        shell: pwsh
-      - uses: actions/upload-artifact@v4
         with:
-          name: cassette-windows
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.platform }}
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check Rust
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Build release
+        run: cargo build --release --locked --bin cassette
+
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path dist/stage -Force | Out-Null
+          Copy-Item target/release/cassette.exe, LICENSE, README.md dist/stage
+          Copy-Item assets/fonts/*OFL.txt, assets/icons/HUGEICONS-LICENSE.txt dist/stage
+          Copy-Item assets/icons/LICENSE dist/stage/ICONS-LICENSE
+          Compress-Archive -Path dist/stage/* -DestinationPath dist/cassette-windows-x64.zip
+
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          app=dist/stage/Cassette.app
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" dist/icon.iconset
+          cp target/release/cassette "$app/Contents/MacOS/"
+          cp LICENSE README.md assets/fonts/*OFL.txt assets/icons/HUGEICONS-LICENSE.txt "$app/Contents/Resources/"
+          cp assets/icons/LICENSE "$app/Contents/Resources/ICONS-LICENSE"
+          for size in 16 32 128 256 512; do
+            sips -z "$size" "$size" assets/cassette.png --out "dist/icon.iconset/icon_${size}x${size}.png" >/dev/null
+            double=$((size * 2))
+            sips -z "$double" "$double" assets/cassette.png --out "dist/icon.iconset/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns dist/icon.iconset -o "$app/Contents/Resources/cassette.icns"
+          cat > "$app/Contents/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>Cassette</string>
+            <key>CFBundleDisplayName</key><string>Cassette</string>
+            <key>CFBundleIdentifier</key><string>app.raag.desktop</string>
+            <key>CFBundleExecutable</key><string>cassette</string>
+            <key>CFBundleIconFile</key><string>cassette.icns</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>$version</string>
+            <key>CFBundleVersion</key><string>${GITHUB_RUN_NUMBER}</string>
+            <key>LSMinimumSystemVersion</key><string>12.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+            <key>CFBundleURLTypes</key><array><dict>
+              <key>CFBundleURLName</key><string>app.raag.desktop</string>
+              <key>CFBundleURLSchemes</key><array><string>cassette</string></array>
+            </dict></array>
+          </dict></plist>
+          EOF
+          plutil -lint "$app/Contents/Info.plist"
+          codesign --force --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          ln -s /Applications dist/stage/Applications
+          hdiutil create -volname Cassette -srcfolder dist/stage -ov -format UDZO dist/cassette-macos-arm64.dmg
+          hdiutil verify dist/cassette-macos-arm64.dmg
+
+      - name: Package Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          root=dist/package
+          install -Dm755 target/release/cassette "$root/usr/bin/cassette"
+          install -Dm644 packaging/cassette.desktop "$root/usr/share/applications/cassette.desktop"
+          install -Dm644 assets/cassette-256.png "$root/usr/share/icons/hicolor/256x256/apps/cassette.png"
+          install -Dm644 LICENSE "$root/usr/share/doc/cassette/copyright"
+          cp README.md assets/fonts/*OFL.txt assets/icons/HUGEICONS-LICENSE.txt "$root/usr/share/doc/cassette/"
+          cp assets/icons/LICENSE "$root/usr/share/doc/cassette/ICONS-LICENSE"
+          mkdir -p debian "$root/DEBIAN"
+          touch debian/control
+          dependencies=$(dpkg-shlibdeps -O target/release/cassette | sed 's/^shlibs:Depends=//')
+          cat > "$root/DEBIAN/control" <<EOF
+          Package: cassette
+          Version: $version
+          Section: sound
+          Priority: optional
+          Architecture: amd64
+          Maintainer: ctrlcat0x <developer.sahilrana@gmail.com>
+          Depends: $dependencies, mpv
+          Recommends: yt-dlp
+          Description: Native desktop music player built with Rust and GPUI
+          EOF
+          dpkg-deb --build --root-owner-group "$root" dist/cassette-linux-x64.deb
+          dpkg-deb --info dist/cassette-linux-x64.deb
+          dpkg-deb --contents dist/cassette-linux-x64.deb
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: cassette-${{ matrix.platform }}
           path: |
             dist/*.zip
-            dist/*.msix
-  macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: bash scripts/package-macos.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: cassette-macos
-          path: dist/*.dmg
-  linux:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: sudo apt-get update && sudo apt-get install -y clang cmake pkg-config dpkg-dev libasound2-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libxrandr-dev libxi-dev libfontconfig1-dev libssl-dev libvulkan-dev libegl1-mesa-dev libgl1-mesa-dev libwebkit2gtk-4.1-dev libgtk-3-dev libdbus-1-dev
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: bash scripts/package-linux.sh deb
-      - uses: actions/upload-artifact@v4
-        with:
-          name: cassette-linux
-          path: dist/*.deb
+            dist/*.dmg
+            dist/*.deb
+          if-no-files-found: error
+          retention-days: 14
