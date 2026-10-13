@@ -539,6 +539,7 @@ impl Raag {
             let id = id.clone();
             row = row.child(
                 Button::new("clean-remote-playlist")
+                    .disabled(self.account.busy_edits() || !self.pending_edits.is_empty())
                     .ghost()
                     .label(t("Remove duplicate songs"))
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -563,15 +564,14 @@ impl Raag {
                             .filter(|t| !seen.insert(t.id.clone()))
                             .cloned()
                             .collect();
-                        if !tracks.is_empty() {
-                            this.account_edit(
-                                Edit::RemoveMany {
-                                    playlist: id.clone(),
-                                    tracks,
-                                },
-                                cx,
-                            );
+                        for chunk in tracks.chunks(100) {
+                            this.pending_edits.push_back(Edit::RemoveMany {
+                                playlist: id.clone(),
+                                tracks: chunk.to_vec(),
+                            });
                         }
+                        this.content_revision += 1;
+                        cx.notify();
                     })),
             );
         }
