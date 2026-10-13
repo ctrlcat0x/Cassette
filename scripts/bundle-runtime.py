@@ -203,7 +203,7 @@ def main():
             repo = "shinchiro/mpv-winbuild-cmake"
             with request(f"https://api.github.com/repos/{repo}/releases/tags/{VERSIONS[repo]}") as response:
                 release = json.load(response)
-            name = next(a["name"] for a in release["assets"] if re.fullmatch(r"mpv-x86_64-.*\.7z", a["name"]))
+            name = next(a["name"] for a in release["assets"] if re.fullmatch(r"mpv-x86_64-\d{8}-.*\.7z", a["name"]))
             archive = asset(repo, name, work)
             seven_zip = shutil.which("7z") or str(Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "7-Zip/7z.exe")
             subprocess.run([seven_zip, "e", str(archive), "mpv.exe", "*.dll", "-r", "-o" + str(ROOT), "-y"], check=True)

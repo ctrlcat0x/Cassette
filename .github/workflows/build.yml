@@ -146,7 +146,15 @@ jobs:
           codesign --force --sign - "$app"
           codesign --verify --deep --strict "$app"
           ln -s /Applications dist/stage/Applications
-          hdiutil create -volname Cassette -srcfolder dist/stage -ov -format UDZO dist/cassette-macos-arm64.dmg
+          created=false
+          for attempt in 1 2 3; do
+            if hdiutil create -volname Cassette -srcfolder dist/stage -ov -fs HFS+ -format UDZO dist/cassette-macos-arm64.dmg; then
+              created=true
+              break
+            fi
+            sleep "$((attempt * 3))"
+          done
+          test "$created" = true
           hdiutil verify dist/cassette-macos-arm64.dmg
 
       - name: Package Linux
