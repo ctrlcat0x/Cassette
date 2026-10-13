@@ -50,7 +50,39 @@ def asset(repo, filename, directory):
 
 
 def run(*args):
-    return subprocess.check_output(args, text=True).strip()
+    return subprocess.check_output(args, text=True, encoding="utf-8", errors="replace").strip()
+
+
+def windows_vulkan(directory):
+    # mpv links the loader even with video disabled. Clean Windows installations
+    # need this DLL beside mpv; never rely on a GPU driver's system installation.
+    revision = "32fcb949e253cbeb40cda7ea76122b492db579ae"
+    source = directory / "Vulkan-Loader"
+    subprocess.run(["git", "clone", "--depth=1", "--branch=v1.4.341",
+                    "https://github.com/KhronosGroup/Vulkan-Loader.git", str(source)], check=True)
+    if run("git", "-C", str(source), "rev-parse", "HEAD") != revision:
+        raise RuntimeError("Vulkan Loader revision does not match the pinned source")
+    cmake = shutil.which("cmake")
+    if not cmake:
+        for variable in ["ProgramFiles", "ProgramFiles(x86)"]:
+            base = Path(os.environ.get(variable, "C:/Program Files"))
+            candidates = list(base.glob("Microsoft Visual Studio/*/*/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe"))
+            if candidates:
+                cmake = str(candidates[0])
+                break
+    if not cmake:
+        raise RuntimeError("CMake is required to bundle the Vulkan Loader")
+    build = directory / "vulkan-build"
+    install = directory / "vulkan-install"
+    subprocess.run([cmake, "-S", str(source), "-B", str(build), "-A", "x64",
+                    "-DUPDATE_DEPS=ON", "-DBUILD_TESTS=OFF", "-DBUILD_WERROR=OFF",
+                    "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
+                    "-DCMAKE_INSTALL_PREFIX=" + str(install)], check=True)
+    subprocess.run([cmake, "--build", str(build), "--config", "Release", "--target", "install", "--parallel", "2"], check=True)
+    shutil.copy2(install / "bin/vulkan-1.dll", ROOT / "vulkan-1.dll")
+    shutil.copy2(source / "LICENSE.txt", ROOT / "licenses/Vulkan-Loader-LICENSE.txt")
+    MANIFEST["Vulkan-Loader"] = {"version": "v1.4.341", "commit": revision,
+                                "source": "https://github.com/KhronosGroup/Vulkan-Loader/tree/" + revision}
 
 
 def linux_mpv():
@@ -174,6 +206,7 @@ def main():
             archive = asset(repo, name, work)
             seven_zip = shutil.which("7z") or str(Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "7-Zip/7z.exe")
             subprocess.run([seven_zip, "e", str(archive), "mpv.exe", "*.dll", "-r", "-o" + str(ROOT), "-y"], check=True)
+            windows_vulkan(work)
         elif SYSTEM == "Darwin":
             macos_mpv()
         else:
