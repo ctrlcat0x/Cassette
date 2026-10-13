@@ -472,6 +472,7 @@ fn parse_youtube_lyrics(value: &Value) -> Option<crate::lyrics::Lyrics> {
                     .map(|line| LyricLine {
                         seconds: None,
                         text: line.to_owned(),
+                        ..Default::default()
                     })
                     .collect();
                 if !lines.is_empty() {
@@ -1045,9 +1046,20 @@ pub fn parse_page(value: &Value, title: &str) -> Page {
     page
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct LyricLine {
     pub seconds: Option<f64>,
+    pub text: String,
+    pub words: Vec<LyricWord>,
+    pub translation: Option<String>,
+    pub romanization: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct LyricWord {
+    pub start: f64,
+    pub end: Option<f64>,
     pub text: String,
 }
 
@@ -1073,10 +1085,13 @@ pub fn parse_lrc(lrc: &str) -> Vec<LyricLine> {
             }
             tail = rest;
         }
+        let (text, words) = crate::lyrics::enhanced_words(tail);
         for seconds in times {
             lines.push(LyricLine {
                 seconds: Some(seconds),
-                text: tail.trim().into(),
+                text: text.clone(),
+                words: words.clone(),
+                ..Default::default()
             });
         }
     }

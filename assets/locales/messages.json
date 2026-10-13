@@ -1,0 +1,1690 @@
+{
+  "Home": [
+    "होम",
+    "Inicio"
+  ],
+  "Explore": [
+    "खोजें",
+    "Explorar"
+  ],
+  "Your library": [
+    "आपकी लाइब्रेरी",
+    "Tu biblioteca"
+  ],
+  "Liked songs": [
+    "पसंद किए गाने",
+    "Canciones favoritas"
+  ],
+  "Recently played": [
+    "हाल में सुने गए",
+    "Escuchado recientemente"
+  ],
+  "Local files": [
+    "स्थानीय फ़ाइलें",
+    "Archivos locales"
+  ],
+  "Search": [
+    "खोज",
+    "Buscar"
+  ],
+  "Song radio": [
+    "गाना रेडियो",
+    "Radio de la canción"
+  ],
+  "Add to playlist": [
+    "प्लेलिस्ट में जोड़ें",
+    "Añadir a playlist"
+  ],
+  "Next up": [
+    "अगले गाने",
+    "A continuación"
+  ],
+  "Lyrics": [
+    "बोल",
+    "Letras"
+  ],
+  "Settings": [
+    "सेटिंग्स",
+    "Ajustes"
+  ],
+  "Offline": [
+    "ऑफ़लाइन",
+    "Sin conexión"
+  ],
+  "Your rhythm": [
+    "आपकी लय",
+    "Tu ritmo"
+  ],
+  "Now playing": [
+    "अभी चल रहा है",
+    "Reproduciendo"
+  ],
+  "Queue": [
+    "कतार",
+    "Cola"
+  ],
+  "Playlists": [
+    "प्लेलिस्ट",
+    "Playlists"
+  ],
+  "Playlist": [
+    "प्लेलिस्ट",
+    "Playlist"
+  ],
+  "Album": [
+    "एल्बम",
+    "Álbum"
+  ],
+  "Albums": [
+    "एल्बम",
+    "Álbumes"
+  ],
+  "Artist": [
+    "कलाकार",
+    "Artista"
+  ],
+  "Artists": [
+    "कलाकार",
+    "Artistas"
+  ],
+  "Songs": [
+    "गाने",
+    "Canciones"
+  ],
+  "All": [
+    "सभी",
+    "Todo"
+  ],
+  "All time": [
+    "अब तक",
+    "Todo el tiempo"
+  ],
+  "30 days": [
+    "३० दिन",
+    "30 días"
+  ],
+  "365 days": [
+    "३६५ दिन",
+    "365 días"
+  ],
+  "Play": [
+    "चलाएँ",
+    "Reproducir"
+  ],
+  "Pause": [
+    "रोकें",
+    "Pausar"
+  ],
+  "Play / pause": [
+    "चलाएँ / रोकें",
+    "Reproducir / pausar"
+  ],
+  "Play or pause": [
+    "चलाएँ या रोकें",
+    "Reproducir o pausar"
+  ],
+  "Play next": [
+    "अगला चलाएँ",
+    "Reproducir después"
+  ],
+  "Previous track": [
+    "पिछला गाना",
+    "Canción anterior"
+  ],
+  "Next track": [
+    "अगला गाना",
+    "Siguiente canción"
+  ],
+  "Shuffle": [
+    "शफ़ल",
+    "Aleatorio"
+  ],
+  "Repeat": [
+    "दोहराएँ",
+    "Repetir"
+  ],
+  "Volume": [
+    "वॉल्यूम",
+    "Volumen"
+  ],
+  "Mute": [
+    "आवाज़ बंद",
+    "Silenciar"
+  ],
+  "Unmute": [
+    "आवाज़ चालू",
+    "Activar sonido"
+  ],
+  "Back": [
+    "पीछे",
+    "Atrás"
+  ],
+  "Forward": [
+    "आगे",
+    "Adelante"
+  ],
+  "Open": [
+    "खोलें",
+    "Abrir"
+  ],
+  "Cancel": [
+    "रद्द करें",
+    "Cancelar"
+  ],
+  "Done": [
+    "हो गया",
+    "Listo"
+  ],
+  "Reset": [
+    "रीसेट",
+    "Restablecer"
+  ],
+  "Rename": [
+    "नाम बदलें",
+    "Renombrar"
+  ],
+  "Remove…": [
+    "हटाएँ…",
+    "Eliminar…"
+  ],
+  "Export…": [
+    "निर्यात करें…",
+    "Exportar…"
+  ],
+  "Visibility": [
+    "दृश्यता",
+    "Visibilidad"
+  ],
+  "Public": [
+    "सार्वजनिक",
+    "Pública"
+  ],
+  "Private": [
+    "निजी",
+    "Privada"
+  ],
+  "Unlisted": [
+    "असूचीबद्ध",
+    "No listada"
+  ],
+  "Title": [
+    "शीर्षक",
+    "Título"
+  ],
+  "Duration": [
+    "अवधि",
+    "Duración"
+  ],
+  "Original order": [
+    "मूल क्रम",
+    "Orden original"
+  ],
+  "Select": [
+    "चुनें",
+    "Seleccionar"
+  ],
+  "Select all shown": [
+    "दिखाए सभी चुनें",
+    "Seleccionar todos los visibles"
+  ],
+  "Remove selected": [
+    "चुने हुए हटाएँ",
+    "Eliminar selección"
+  ],
+  "Download selected": [
+    "चुने हुए डाउनलोड करें",
+    "Descargar selección"
+  ],
+  "Clear upcoming": [
+    "आने वाले गाने हटाएँ",
+    "Vaciar próximas canciones"
+  ],
+  "Add to queue": [
+    "कतार में जोड़ें",
+    "Añadir a la cola"
+  ],
+  "Remove from queue": [
+    "कतार से हटाएँ",
+    "Quitar de la cola"
+  ],
+  "Move up": [
+    "ऊपर ले जाएँ",
+    "Subir"
+  ],
+  "Move down": [
+    "नीचे ले जाएँ",
+    "Bajar"
+  ],
+  "Move earlier": [
+    "पहले ले जाएँ",
+    "Mover antes"
+  ],
+  "Move later": [
+    "बाद में ले जाएँ",
+    "Mover después"
+  ],
+  "More song actions": [
+    "गाने के और विकल्प",
+    "Más opciones de canción"
+  ],
+  "Toggle like": [
+    "पसंद बदलें",
+    "Cambiar favorito"
+  ],
+  "Download for offline": [
+    "ऑफ़लाइन डाउनलोड करें",
+    "Descargar para escuchar sin conexión"
+  ],
+  "Remove offline download": [
+    "ऑफ़लाइन डाउनलोड हटाएँ",
+    "Eliminar descarga"
+  ],
+  "Hide from recommendations": [
+    "सुझावों से छिपाएँ",
+    "Ocultar de recomendaciones"
+  ],
+  "Dislike on YouTube Music": [
+    "YouTube Music पर नापसंद करें",
+    "No me gusta en YouTube Music"
+  ],
+  "Add music…": [
+    "संगीत जोड़ें…",
+    "Añadir música…"
+  ],
+  "Add playing song": [
+    "चल रहा गाना जोड़ें",
+    "Añadir canción actual"
+  ],
+  "Add to playlist…": [
+    "प्लेलिस्ट में जोड़ें…",
+    "Añadir a playlist…"
+  ],
+  "New playlist": [
+    "नई प्लेलिस्ट",
+    "Nueva playlist"
+  ],
+  "Create playlist": [
+    "प्लेलिस्ट बनाएँ",
+    "Crear playlist"
+  ],
+  "New local playlist…": [
+    "नई स्थानीय प्लेलिस्ट…",
+    "Nueva playlist local…"
+  ],
+  "Import playlist…": [
+    "प्लेलिस्ट आयात करें…",
+    "Importar playlist…"
+  ],
+  "Export playlist…": [
+    "प्लेलिस्ट निर्यात करें…",
+    "Exportar playlist…"
+  ],
+  "Import a Cassette playlist": [
+    "Cassette प्लेलिस्ट आयात करें",
+    "Importar playlist de Cassette"
+  ],
+  "Playlist name": [
+    "प्लेलिस्ट का नाम",
+    "Nombre de playlist"
+  ],
+  "Playlist actions": [
+    "प्लेलिस्ट के विकल्प",
+    "Opciones de playlist"
+  ],
+  "Library actions": [
+    "लाइब्रेरी के विकल्प",
+    "Opciones de biblioteca"
+  ],
+  "Rename playlist": [
+    "प्लेलिस्ट का नाम बदलें",
+    "Renombrar playlist"
+  ],
+  "Rename playlist…": [
+    "प्लेलिस्ट का नाम बदलें…",
+    "Renombrar playlist…"
+  ],
+  "Remove playlist": [
+    "प्लेलिस्ट हटाएँ",
+    "Eliminar playlist"
+  ],
+  "Remove playlist…": [
+    "प्लेलिस्ट हटाएँ…",
+    "Eliminar playlist…"
+  ],
+  "Delete playlist": [
+    "प्लेलिस्ट मिटाएँ",
+    "Borrar playlist"
+  ],
+  "Delete playlist…": [
+    "प्लेलिस्ट मिटाएँ…",
+    "Borrar playlist…"
+  ],
+  "Delete this playlist?": [
+    "यह प्लेलिस्ट मिटाएँ?",
+    "¿Borrar esta playlist?"
+  ],
+  "Remove this playlist?": [
+    "यह प्लेलिस्ट हटाएँ?",
+    "¿Eliminar esta playlist?"
+  ],
+  "Edit description…": [
+    "विवरण बदलें…",
+    "Editar descripción…"
+  ],
+  "Playlist description": [
+    "प्लेलिस्ट का विवरण",
+    "Descripción de playlist"
+  ],
+  "Save description": [
+    "विवरण सहेजें",
+    "Guardar descripción"
+  ],
+  "Save playlist": [
+    "प्लेलिस्ट सहेजें",
+    "Guardar playlist"
+  ],
+  "Remove from playlist": [
+    "प्लेलिस्ट से हटाएँ",
+    "Quitar de playlist"
+  ],
+  "Save to library": [
+    "लाइब्रेरी में सहेजें",
+    "Guardar en biblioteca"
+  ],
+  "Remove from library": [
+    "लाइब्रेरी से हटाएँ",
+    "Quitar de biblioteca"
+  ],
+  "Save to YouTube library": [
+    "YouTube लाइब्रेरी में सहेजें",
+    "Guardar en biblioteca de YouTube"
+  ],
+  "Remove from YouTube library": [
+    "YouTube लाइब्रेरी से हटाएँ",
+    "Quitar de biblioteca de YouTube"
+  ],
+  "Filter this collection…": [
+    "इस संग्रह में खोजें…",
+    "Filtrar esta colección…"
+  ],
+  "Sort collection": [
+    "संग्रह का क्रम",
+    "Ordenar colección"
+  ],
+  "Download collection": [
+    "संग्रह डाउनलोड करें",
+    "Descargar colección"
+  ],
+  "Rescan folders": [
+    "फ़ोल्डर फिर स्कैन करें",
+    "Volver a explorar carpetas"
+  ],
+  "Follow": [
+    "फ़ॉलो करें",
+    "Seguir"
+  ],
+  "Following": [
+    "फ़ॉलो कर रहे हैं",
+    "Siguiendo"
+  ],
+  "For you": [
+    "आपके लिए",
+    "Para ti"
+  ],
+  "Charts": [
+    "चार्ट",
+    "Listas de éxitos"
+  ],
+  "Moods & genres": [
+    "मूड और शैलियाँ",
+    "Estados de ánimo y géneros"
+  ],
+  "New releases": [
+    "नई रिलीज़",
+    "Novedades"
+  ],
+  "More results": [
+    "और परिणाम",
+    "Más resultados"
+  ],
+  "More to explore": [
+    "और खोजें",
+    "Más para explorar"
+  ],
+  "Show all": [
+    "सभी दिखाएँ",
+    "Mostrar todo"
+  ],
+  "Show all songs": [
+    "सभी गाने दिखाएँ",
+    "Mostrar todas las canciones"
+  ],
+  "Next items": [
+    "अगले आइटम",
+    "Elementos siguientes"
+  ],
+  "Previous items": [
+    "पिछले आइटम",
+    "Elementos anteriores"
+  ],
+  "Your day, in music.": [
+    "आपका दिन, संगीत के साथ।",
+    "Tu día, en música."
+  ],
+  "A familiar favourite. Something unexpected.": [
+    "एक जाना-पहचाना पसंदीदा। कुछ अनपेक्षित।",
+    "Un favorito conocido. Algo inesperado."
+  ],
+  "Find your frequency.": [
+    "अपनी धुन खोजें।",
+    "Encuentra tu frecuencia."
+  ],
+  "A mix for the moment": [
+    "इस पल के लिए एक मिक्स",
+    "Una mezcla para este momento"
+  ],
+  "Play mix": [
+    "मिक्स चलाएँ",
+    "Reproducir mezcla"
+  ],
+  "On repeat": [
+    "बार-बार सुने गए",
+    "En bucle"
+  ],
+  "A little more energy": [
+    "थोड़ी और ऊर्जा",
+    "Un poco más de energía"
+  ],
+  "Dancing on your own": [
+    "अपनी धुन पर नाचें",
+    "Baila a tu ritmo"
+  ],
+  "Quick picks": [
+    "तुरंत चुनें",
+    "Selecciones rápidas"
+  ],
+  "Find your mood": [
+    "अपना मूड खोजें",
+    "Encuentra tu ambiente"
+  ],
+  "Explore music": [
+    "संगीत खोजें",
+    "Explorar música"
+  ],
+  "New releases, favourite artists and your next discovery.": [
+    "नई रिलीज़, पसंदीदा कलाकार और आपकी अगली खोज।",
+    "Novedades, artistas favoritos y tu próximo descubrimiento."
+  ],
+  "A soundtrack for every mood. A place for every genre.": [
+    "हर मूड का संगीत। हर शैली की जगह।",
+    "Música para cada estado de ánimo. Un lugar para cada género."
+  ],
+  "Your recently played songs will appear here.": [
+    "हाल में सुने गाने यहाँ दिखेंगे।",
+    "Aquí aparecerán tus canciones recientes."
+  ],
+  "Make room for your favourites.": [
+    "अपने पसंदीदा गानों के लिए जगह बनाएँ।",
+    "Haz espacio para tus favoritos."
+  ],
+  "The music you keep coming back to.": [
+    "वह संगीत जो आपको बार-बार बुलाता है।",
+    "La música a la que siempre vuelves."
+  ],
+  "Keep the songs you love.": [
+    "पसंदीदा गाने साथ रखें।",
+    "Conserva las canciones que amas."
+  ],
+  "Your files. Your favourites.": [
+    "आपकी फ़ाइलें। आपके पसंदीदा।",
+    "Tus archivos. Tus favoritos."
+  ],
+  "A little quiet, for now.": [
+    "अभी थोड़ा सन्नाटा है।",
+    "Un poco de silencio, por ahora."
+  ],
+  "There's room for more music.": [
+    "और संगीत की जगह है।",
+    "Hay espacio para más música."
+  ],
+  "Your collection will appear here.": [
+    "आपका संग्रह यहाँ दिखेगा।",
+    "Tu colección aparecerá aquí."
+  ],
+  "Search songs, artists, albums…": [
+    "गाने, कलाकार, एल्बम खोजें…",
+    "Buscar canciones, artistas, álbumes…"
+  ],
+  "Search songs, artists, albums and playlists above.": [
+    "ऊपर गाने, कलाकार, एल्बम और प्लेलिस्ट खोजें।",
+    "Busca canciones, artistas, álbumes y playlists arriba."
+  ],
+  "Loading music…": [
+    "संगीत लोड हो रहा है…",
+    "Cargando música…"
+  ],
+  "Loading more…": [
+    "और लोड हो रहा है…",
+    "Cargando más…"
+  ],
+  "Finding your music…": [
+    "आपका संगीत खोज रहे हैं…",
+    "Buscando tu música…"
+  ],
+  "Finding lyrics…": [
+    "बोल खोज रहे हैं…",
+    "Buscando letras…"
+  ],
+  "Finding the words…": [
+    "बोल खोज रहे हैं…",
+    "Buscando las palabras…"
+  ],
+  "No lyrics are available for this song.": [
+    "इस गाने के बोल उपलब्ध नहीं हैं।",
+    "No hay letras disponibles para esta canción."
+  ],
+  "No lyrics for this song yet.": [
+    "इस गाने के बोल अभी नहीं मिले।",
+    "Aún no hay letras para esta canción."
+  ],
+  "Lyrics aren’t available for this recording.": [
+    "इस रिकॉर्डिंग के बोल उपलब्ध नहीं हैं।",
+    "No hay letras para esta grabación."
+  ],
+  "Play a song to see its lyrics.": [
+    "बोल देखने के लिए गाना चलाएँ।",
+    "Reproduce una canción para ver su letra."
+  ],
+  "Untimed lyrics": [
+    "बिना समय वाले बोल",
+    "Letras sin sincronizar"
+  ],
+  "Follow song": [
+    "गाने के साथ चलें",
+    "Seguir canción"
+  ],
+  "Following song": [
+    "गाने के साथ चल रहे हैं",
+    "Siguiendo canción"
+  ],
+  "Resume following": [
+    "फिर साथ चलें",
+    "Reanudar seguimiento"
+  ],
+  "Open lyrics": [
+    "बोल खोलें",
+    "Abrir letras"
+  ],
+  "Fullscreen": [
+    "पूरी स्क्रीन",
+    "Pantalla completa"
+  ],
+  "Fullscreen player": [
+    "पूरी स्क्रीन का प्लेयर",
+    "Reproductor en pantalla completa"
+  ],
+  "Fullscreen player options": [
+    "पूरी स्क्रीन के विकल्प",
+    "Opciones de pantalla completa"
+  ],
+  "Exit fullscreen": [
+    "पूरी स्क्रीन से बाहर",
+    "Salir de pantalla completa"
+  ],
+  "Open now playing": [
+    "चल रहा गाना खोलें",
+    "Abrir reproducción actual"
+  ],
+  "Player options": [
+    "प्लेयर के विकल्प",
+    "Opciones del reproductor"
+  ],
+  "Appearance": [
+    "रूप-रंग",
+    "Apariencia"
+  ],
+  "Theme": [
+    "थीम",
+    "Tema"
+  ],
+  "Accent colour": [
+    "रंग",
+    "Color de acento"
+  ],
+  "Choose a home for your music.": [
+    "अपने संगीत का रूप चुनें।",
+    "Elige un hogar para tu música."
+  ],
+  "Choose a colour, or let Magic follow the song.": [
+    "रंग चुनें, या मैजिक को गाने के साथ चलने दें।",
+    "Elige un color o deja que Magic siga la canción."
+  ],
+  "Browse all themes": [
+    "सभी थीम देखें",
+    "Ver todos los temas"
+  ],
+  "Show fewer themes": [
+    "कम थीम दिखाएँ",
+    "Mostrar menos temas"
+  ],
+  "Magic accent from current artwork": [
+    "कवर से मैजिक रंग",
+    "Color Magic de la portada actual"
+  ],
+  "Magic accent · follows the current artwork": [
+    "मैजिक रंग · कवर के साथ बदलता है",
+    "Color Magic · sigue la portada actual"
+  ],
+  "This theme includes its own accent and component colours.": [
+    "इस थीम के अपने रंग हैं।",
+    "Este tema incluye sus propios colores de acento y componentes."
+  ],
+  "Magic follows your artwork. Without artwork, the accent is black in Light and white in Dark.": [
+    "मैजिक कवर का रंग लेता है। कवर न होने पर हल्की थीम में काला और गहरी में सफ़ेद रंग है।",
+    "Magic sigue la portada. Sin portada, el color es negro en Claro y blanco en Oscuro."
+  ],
+  "Blurred artwork background": [
+    "धुंधला कवर बैकग्राउंड",
+    "Fondo de portada desenfocado"
+  ],
+  "Playback": [
+    "प्लेबैक",
+    "Reproducción"
+  ],
+  "Make the queue your own": [
+    "कतार अपनी पसंद से बनाएँ",
+    "Personaliza tu cola"
+  ],
+  "Continue with similar songs": [
+    "मिलते-जुलते गाने जारी रखें",
+    "Continuar con canciones similares"
+  ],
+  "Sound": [
+    "ध्वनि",
+    "Sonido"
+  ],
+  "Output, tone and transitions": [
+    "आउटपुट, टोन और बदलाव",
+    "Salida, tono y transiciones"
+  ],
+  "Equalizer": [
+    "इक्वलाइज़र",
+    "Ecualizador"
+  ],
+  "Normalize loudness": [
+    "आवाज़ बराबर रखें",
+    "Normalizar volumen"
+  ],
+  "Try JioSaavn audio first": [
+    "पहले JioSaavn ऑडियो आज़माएँ",
+    "Probar primero audio de JioSaavn"
+  ],
+  "Sleep timer": [
+    "स्लीप टाइमर",
+    "Temporizador de apagado"
+  ],
+  "End of song": [
+    "गाने के अंत में",
+    "Al terminar la canción"
+  ],
+  "System default": [
+    "सिस्टम का चयन",
+    "Predeterminado del sistema"
+  ],
+  "Best available": [
+    "सर्वोत्तम उपलब्ध",
+    "Mejor disponible"
+  ],
+  "Standard": [
+    "मानक",
+    "Estándar"
+  ],
+  "Data saver": [
+    "कम डेटा",
+    "Ahorro de datos"
+  ],
+  "Discovery": [
+    "खोज",
+    "Descubrimiento"
+  ],
+  "Recommendations and listening history": [
+    "सुझाव और सुनने का इतिहास",
+    "Recomendaciones e historial"
+  ],
+  "Private listening session": [
+    "निजी सुनने का सत्र",
+    "Sesión privada"
+  ],
+  "Sync listened songs to YouTube Music": [
+    "सुने गाने YouTube Music से सिंक करें",
+    "Sincronizar escuchas con YouTube Music"
+  ],
+  "Familiar": [
+    "परिचित",
+    "Familiar"
+  ],
+  "Balanced": [
+    "संतुलित",
+    "Equilibrado"
+  ],
+  "New to you": [
+    "आपके लिए नया",
+    "Nuevo para ti"
+  ],
+  "Offline storage": [
+    "ऑफ़लाइन स्टोरेज",
+    "Almacenamiento sin conexión"
+  ],
+  "Pinned downloads and temporary cache": [
+    "सहेजे डाउनलोड और अस्थायी कैश",
+    "Descargas fijadas y caché temporal"
+  ],
+  "Offline mode": [
+    "ऑफ़लाइन मोड",
+    "Modo sin conexión"
+  ],
+  "Cancel downloads": [
+    "डाउनलोड रद्द करें",
+    "Cancelar descargas"
+  ],
+  "Clear unpinned cache": [
+    "अस्थायी कैश साफ़ करें",
+    "Limpiar caché no fijada"
+  ],
+  "Your account and library": [
+    "आपका अकाउंट और लाइब्रेरी",
+    "Tu cuenta y biblioteca"
+  ],
+  "Sign in to YouTube Music": [
+    "YouTube Music में साइन इन करें",
+    "Iniciar sesión en YouTube Music"
+  ],
+  "Signing in…": [
+    "साइन इन हो रहा है…",
+    "Iniciando sesión…"
+  ],
+  "Sign out": [
+    "साइन आउट",
+    "Cerrar sesión"
+  ],
+  "Switch account": [
+    "अकाउंट बदलें",
+    "Cambiar cuenta"
+  ],
+  "Switch YouTube account": [
+    "YouTube अकाउंट बदलें",
+    "Cambiar cuenta de YouTube"
+  ],
+  "Sync YouTube Music": [
+    "YouTube Music सिंक करें",
+    "Sincronizar YouTube Music"
+  ],
+  "Syncing YouTube Music…": [
+    "YouTube Music सिंक हो रहा है…",
+    "Sincronizando YouTube Music…"
+  ],
+  "Cancel sign-in": [
+    "साइन इन रद्द करें",
+    "Cancelar inicio de sesión"
+  ],
+  "Retry sign out": [
+    "फिर साइन आउट करें",
+    "Reintentar cierre de sesión"
+  ],
+  "Validating your YouTube session…": [
+    "YouTube सत्र जाँच रहे हैं…",
+    "Validando sesión de YouTube…"
+  ],
+  "Open profile menu": [
+    "प्रोफ़ाइल मेनू खोलें",
+    "Abrir menú de perfil"
+  ],
+  "System": [
+    "सिस्टम",
+    "Sistema"
+  ],
+  "Ready when you are": [
+    "जब आप तैयार हों",
+    "Listo cuando tú lo estés"
+  ],
+  "Enable Cassette links": [
+    "Cassette लिंक चालू करें",
+    "Activar enlaces de Cassette"
+  ],
+  "Keep Cassette in the tray when closing": [
+    "बंद करने पर Cassette ट्रे में रखें",
+    "Mantener Cassette en la bandeja al cerrar"
+  ],
+  "Start with your computer, in the tray": [
+    "कंप्यूटर के साथ ट्रे में शुरू करें",
+    "Iniciar con el equipo en la bandeja"
+  ],
+  "Advanced": [
+    "अतिरिक्त",
+    "Avanzado"
+  ],
+  "Apply paths": [
+    "पाथ लागू करें",
+    "Aplicar rutas"
+  ],
+  "Import cookies…": [
+    "कुकीज़ आयात करें…",
+    "Importar cookies…"
+  ],
+  "Cookie import help": [
+    "कुकी आयात की मदद",
+    "Ayuda de importación de cookies"
+  ],
+  "Automatic (mpv on PATH or bundled)": [
+    "अपने आप (PATH या बंडल का mpv)",
+    "Automático (mpv en PATH o incluido)"
+  ],
+  "Automatic (yt-dlp on PATH or bundled)": [
+    "अपने आप (PATH या बंडल का yt-dlp)",
+    "Automático (yt-dlp en PATH o incluido)"
+  ],
+  "mpv executable": [
+    "mpv प्रोग्राम",
+    "Ejecutable de mpv"
+  ],
+  "yt-dlp executable": [
+    "yt-dlp प्रोग्राम",
+    "Ejecutable de yt-dlp"
+  ],
+  "Your music and settings": [
+    "आपका संगीत और सेटिंग्स",
+    "Tu música y ajustes"
+  ],
+  "Make yourself at home.": [
+    "अपनी पसंद से सजाएँ।",
+    "Siéntete como en casa."
+  ],
+  "Listening story": [
+    "सुनने की कहानी",
+    "Historia de escucha"
+  ],
+  "Your listening story starts here.": [
+    "आपकी सुनने की कहानी यहाँ शुरू होती है।",
+    "Tu historia de escucha empieza aquí."
+  ],
+  "Your most played": [
+    "आपके सबसे अधिक सुने",
+    "Lo que más escuchas"
+  ],
+  "Your music, on repeat.": [
+    "आपका संगीत, बार-बार।",
+    "Tu música, en bucle."
+  ],
+  "Top songs": [
+    "शीर्ष गाने",
+    "Canciones principales"
+  ],
+  "Top artists": [
+    "शीर्ष कलाकार",
+    "Artistas principales"
+  ],
+  "Top albums": [
+    "शीर्ष एल्बम",
+    "Álbumes principales"
+  ],
+  "Minutes listened": [
+    "सुने गए मिनट",
+    "Minutos escuchados"
+  ],
+  "Export listening statistics…": [
+    "सुनने के आँकड़े निर्यात करें…",
+    "Exportar estadísticas…"
+  ],
+  "Play again": [
+    "फिर चलाएँ",
+    "Volver a reproducir"
+  ],
+  "Dismiss": [
+    "हटाएँ",
+    "Descartar"
+  ],
+  "Dismiss message": [
+    "संदेश हटाएँ",
+    "Cerrar mensaje"
+  ],
+  "Toggle sidebar": [
+    "साइडबार बदलें",
+    "Mostrar u ocultar barra lateral"
+  ],
+  "Close panel": [
+    "पैनल बंद करें",
+    "Cerrar panel"
+  ],
+  "Cycle repeat mode": [
+    "दोहराने का मोड बदलें",
+    "Cambiar modo de repetición"
+  ],
+  "Retry playback": [
+    "फिर चलाएँ",
+    "Reintentar reproducción"
+  ],
+  "New folder": [
+    "नया फ़ोल्डर",
+    "Nueva carpeta"
+  ],
+  "Folder name": [
+    "फ़ोल्डर का नाम",
+    "Nombre de carpeta"
+  ],
+  "All playlists": [
+    "सभी प्लेलिस्ट",
+    "Todas las playlists"
+  ],
+  "Parent folder": [
+    "ऊपरी फ़ोल्डर",
+    "Carpeta superior"
+  ],
+  "Rename folder": [
+    "फ़ोल्डर का नाम बदलें",
+    "Renombrar carpeta"
+  ],
+  "Remove folder, keep playlists": [
+    "फ़ोल्डर हटाएँ, प्लेलिस्ट रखें",
+    "Eliminar carpeta, conservar playlists"
+  ],
+  "New smart playlist": [
+    "नई स्मार्ट प्लेलिस्ट",
+    "Nueva playlist inteligente"
+  ],
+  "Smart playlist name": [
+    "स्मार्ट प्लेलिस्ट का नाम",
+    "Nombre de playlist inteligente"
+  ],
+  "Edit smart rules": [
+    "स्मार्ट नियम बदलें",
+    "Editar reglas inteligentes"
+  ],
+  "Save smart playlist": [
+    "स्मार्ट प्लेलिस्ट सहेजें",
+    "Guardar playlist inteligente"
+  ],
+  "Contains text": [
+    "यह शब्द शामिल हों",
+    "Contiene texto"
+  ],
+  "Artist contains": [
+    "कलाकार में शामिल हो",
+    "El artista contiene"
+  ],
+  "Album contains": [
+    "एल्बम में शामिल हो",
+    "El álbum contiene"
+  ],
+  "Any artist": [
+    "कोई भी कलाकार",
+    "Cualquier artista"
+  ],
+  "Any album": [
+    "कोई भी एल्बम",
+    "Cualquier álbum"
+  ],
+  "Minimum plays": [
+    "कम से कम बार सुना हो",
+    "Reproducciones mínimas"
+  ],
+  "Exclude explicit songs": [
+    "अश्लील गाने हटाएँ",
+    "Excluir canciones explícitas"
+  ],
+  "All local library entries": [
+    "स्थानीय लाइब्रेरी के सभी गाने",
+    "Todas las entradas locales"
+  ],
+  "Choose cover on this device…": [
+    "इस डिवाइस पर कवर चुनें…",
+    "Elegir portada en este dispositivo…"
+  ],
+  "Reset cover": [
+    "कवर रीसेट करें",
+    "Restablecer portada"
+  ],
+  "Remove duplicate songs": [
+    "दोहराए गाने हटाएँ",
+    "Eliminar canciones duplicadas"
+  ],
+  "None": [
+    "कोई नहीं",
+    "Ninguna"
+  ],
+  "Providers, timing and text": [
+    "स्रोत, समय और पाठ",
+    "Proveedores, sincronización y texto"
+  ],
+  "Automatic": [
+    "अपने आप",
+    "Automático"
+  ],
+  "Highlight words and syllables": [
+    "शब्द और अक्षर हाइलाइट करें",
+    "Resaltar palabras y sílabas"
+  ],
+  "Show available translations": [
+    "उपलब्ध अनुवाद दिखाएँ",
+    "Mostrar traducciones disponibles"
+  ],
+  "Show available romanization": [
+    "उपलब्ध रोमन लिपि दिखाएँ",
+    "Mostrar romanización disponible"
+  ],
+  "Earlier": [
+    "पहले",
+    "Antes"
+  ],
+  "Later": [
+    "बाद में",
+    "Después"
+  ],
+  "Reset offset": [
+    "समय रीसेट करें",
+    "Restablecer desfase"
+  ],
+  "Reload lyrics": [
+    "बोल फिर लोड करें",
+    "Recargar letras"
+  ],
+  "Import corrected lyrics…": [
+    "सुधारे हुए बोल आयात करें…",
+    "Importar letras corregidas…"
+  ],
+  "Use provider lyrics": [
+    "स्रोत के बोल इस्तेमाल करें",
+    "Usar letras del proveedor"
+  ],
+  "Language and display": [
+    "भाषा और डिस्प्ले",
+    "Idioma y pantalla"
+  ],
+  "Language": [
+    "भाषा",
+    "Idioma"
+  ],
+  "Interface size": [
+    "इंटरफ़ेस का आकार",
+    "Tamaño de interfaz"
+  ],
+  "Interface scale: {:.0}%": [
+    "इंटरफ़ेस का आकार: {:.0}%",
+    "Escala de interfaz: {:.0}%"
+  ],
+  "Language changes apply immediately.": [
+    "भाषा तुरंत बदलती है।",
+    "Los cambios de idioma se aplican de inmediato."
+  ],
+  "Lyrics provider: {}": [
+    "बोल का स्रोत: {}",
+    "Proveedor de letras: {}"
+  ],
+  "Lyrics offset: {offset} ms": [
+    "बोल का समय: {offset} ms",
+    "Desfase de letras: {offset} ms"
+  ],
+  "Lyrics text size: {:.0}%": [
+    "बोल का आकार: {:.0}%",
+    "Tamaño de letras: {:.0}%"
+  ],
+  "Folder: {}": [
+    "फ़ोल्डर: {}",
+    "Carpeta: {}"
+  ],
+  "Source: {}": [
+    "स्रोत: {}",
+    "Fuente: {}"
+  ],
+  "Removed {count} duplicate songs": [
+    "{count} दोहराए गाने हटाए",
+    "Se eliminaron {count} canciones duplicadas"
+  ],
+  "Streaming quality: {}": [
+    "स्ट्रीमिंग गुणवत्ता: {}",
+    "Calidad de reproducción: {}"
+  ],
+  "Download quality: {}": [
+    "डाउनलोड गुणवत्ता: {}",
+    "Calidad de descarga: {}"
+  ],
+  "Crossfade: {:.0} seconds": [
+    "क्रॉसफ़ेड: {:.0} सेकंड",
+    "Fundido: {:.0} segundos"
+  ],
+  "Storage limit: {} GiB": [
+    "स्टोरेज सीमा: {} GiB",
+    "Límite de almacenamiento: {} GiB"
+  ],
+  "Output: {}": [
+    "आउटपुट: {}",
+    "Salida: {}"
+  ],
+  "Volume: {:.0}%": [
+    "वॉल्यूम: {:.0}%",
+    "Volumen: {:.0}%"
+  ],
+  "Queue {}": [
+    "कतार में जोड़ें {}",
+    "Añadir a la cola {}"
+  ],
+  "Play {}": [
+    "चलाएँ {}",
+    "Reproducir {}"
+  ],
+  "Play {} by {}": [
+    "चलाएँ {} — {}",
+    "Reproducir {} de {}"
+  ],
+  "Seek to {}": [
+    "यहाँ चलाएँ {}",
+    "Saltar a {}"
+  ],
+  "Select {}": [
+    "चुनें {}",
+    "Seleccionar {}"
+  ],
+  "Open {}": [
+    "खोलें {}",
+    "Abrir {}"
+  ],
+  "Open artist {}": [
+    "कलाकार खोलें {}",
+    "Abrir artista {}"
+  ],
+  "Open artist {name}": [
+    "कलाकार खोलें {name}",
+    "Abrir artista {name}"
+  ],
+  "Open playlist {title}": [
+    "प्लेलिस्ट खोलें {title}",
+    "Abrir playlist {title}"
+  ],
+  "Results for “{}”": [
+    "“{}” के परिणाम",
+    "Resultados para «{}»"
+  ],
+  "Downloading {} · {}/{}": [
+    "डाउनलोड हो रहा है {} · {}/{}",
+    "Descargando {} · {}/{}"
+  ],
+  "Added {count} local tracks": [
+    "{count} स्थानीय गाने जोड़े",
+    "Se añadieron {count} canciones locales"
+  ],
+  "Pausing in {} min": [
+    "{} मिनट में रुकेगा",
+    "Se pausará en {} min"
+  ],
+  "Radio discovery: {}": [
+    "रेडियो खोज: {}",
+    "Descubrimiento de radio: {}"
+  ],
+  "Reset hidden recommendations ({})": [
+    "छिपे सुझाव रीसेट करें ({})",
+    "Restablecer recomendaciones ocultas ({})"
+  ],
+  "Playlist view: {label}": [
+    "प्लेलिस्ट दृश्य: {label}",
+    "Vista de playlist: {label}"
+  ],
+  "About {}": [
+    "{} के बारे में",
+    "Acerca de {}"
+  ],
+  "Choose LRC or TTML lyrics": [
+    "LRC या TTML बोल चुनें",
+    "Elegir letras LRC o TTML"
+  ],
+  "Choose a PNG or JPEG cover": [
+    "PNG या JPEG कवर चुनें",
+    "Elegir portada PNG o JPEG"
+  ],
+  "Add music files or a folder": [
+    "संगीत फ़ाइलें या फ़ोल्डर जोड़ें",
+    "Añadir archivos de música o carpeta"
+  ],
+  "Open Cassette": [
+    "Cassette खोलें",
+    "Abrir Cassette"
+  ],
+  "Quit Cassette": [
+    "Cassette बंद करें",
+    "Salir de Cassette"
+  ],
+  "Play top songs": [
+    "शीर्ष गाने चलाएँ",
+    "Reproducir canciones principales"
+  ],
+  "Choose a song to get started.": [
+    "शुरू करने के लिए गाना चुनें।",
+    "Elige una canción para empezar."
+  ],
+  "Your queue is empty. Play a song to begin.": [
+    "कतार खाली है। शुरू करने के लिए गाना चलाएँ।",
+    "La cola está vacía. Reproduce una canción para empezar."
+  ],
+  "Play a song or add tracks to the queue.": [
+    "गाना चलाएँ या कतार में जोड़ें।",
+    "Reproduce una canción o añade canciones a la cola."
+  ],
+  "Play a song and it will appear in your history.": [
+    "गाना चलाएँ और वह इतिहास में दिखेगा।",
+    "Reproduce una canción y aparecerá en tu historial."
+  ],
+  "Tap the heart beside a song to find it here.": [
+    "गाने के पास दिल दबाएँ और उसे यहाँ पाएँ।",
+    "Pulsa el corazón de una canción para verla aquí."
+  ],
+  "Add a folder or audio files from this computer.": [
+    "इस कंप्यूटर से फ़ोल्डर या ऑडियो फ़ाइलें जोड़ें।",
+    "Añade una carpeta o archivos de audio de este equipo."
+  ],
+  "Create a playlist or import one from the menu above.": [
+    "प्लेलिस्ट बनाएँ या ऊपर के मेनू से आयात करें।",
+    "Crea una playlist o impórtala desde el menú superior."
+  ],
+  "Save music in YouTube Music, then sync from your profile menu.": [
+    "YouTube Music में गाने सहेजें, फिर प्रोफ़ाइल से सिंक करें।",
+    "Guarda música en YouTube Music y sincroniza desde tu perfil."
+  ],
+  "Add songs to this collection or sync from your profile menu.": [
+    "इस संग्रह में गाने जोड़ें या प्रोफ़ाइल से सिंक करें।",
+    "Añade canciones a esta colección o sincroniza desde tu perfil."
+  ],
+  "Download a song or collection from its menu. Recently cached songs also appear here.": [
+    "मेनू से गाना या संग्रह डाउनलोड करें। हाल के कैश गाने भी यहाँ दिखेंगे।",
+    "Descarga una canción o colección desde su menú. Aquí también aparecen canciones en caché."
+  ],
+  "Play a song to start your charts. Your story grows as you listen.": [
+    "अपने चार्ट शुरू करने के लिए गीत चलाएँ। सुनते रहें, आपकी कहानी बढ़ती जाएगी।",
+    "Reproduce una canción para empezar tus estadísticas. Tu historia crece mientras escuchas."
+  ],
+  "Word timing and translations appear only when supplied by the lyric source.": [
+    "शब्दों का समय और अनुवाद तभी दिखेंगे जब स्रोत दे।",
+    "La sincronización por palabras y traducciones solo aparecen si el proveedor las ofrece."
+  ],
+  "Offset is saved for the current song. Positive values show lyrics earlier.": [
+    "समय इस गाने के लिए सहेजा जाता है। धनात्मक मान बोल पहले दिखाते हैं।",
+    "El desfase se guarda para la canción actual. Los valores positivos adelantan la letra."
+  ],
+  "Play a song to adjust its timing. This setting changes the default offset.": [
+    "समय बदलने के लिए गाना चलाएँ। यह विकल्प डिफ़ॉल्ट समय बदलता है।",
+    "Reproduce una canción para ajustar su sincronización. Este ajuste cambia el desfase predeterminado."
+  ],
+  "Rules match songs already present in your local library, likes and history. Membership updates automatically.": [
+    "नियम स्थानीय लाइब्रेरी, पसंद और इतिहास के गानों पर लागू होते हैं। गाने अपने आप अपडेट होते हैं।",
+    "Las reglas usan canciones de tu biblioteca local, favoritos e historial. La selección se actualiza automáticamente."
+  ],
+  "Enter a folder name between 1 and 100 characters.": [
+    "फ़ोल्डर का नाम 1 से 100 अक्षरों का रखें।",
+    "Introduce un nombre de carpeta de entre 1 y 100 caracteres."
+  ],
+  "Minimum plays must be a whole number.": [
+    "न्यूनतम बार एक पूर्ण संख्या होनी चाहिए।",
+    "Las reproducciones mínimas deben ser un número entero."
+  ],
+  "The selected file contains no lyrics.": [
+    "चुनी फ़ाइल में बोल नहीं हैं।",
+    "El archivo seleccionado no contiene letras."
+  ],
+  "Load the entire playlist before removing duplicates.": [
+    "दोहराए गाने हटाने से पहले पूरी प्लेलिस्ट लोड करें।",
+    "Carga toda la playlist antes de eliminar duplicados."
+  ],
+  "Load the remaining playlist before moving a song to the end.": [
+    "गाना अंत में ले जाने से पहले बाकी प्लेलिस्ट लोड करें।",
+    "Carga el resto de la playlist antes de mover una canción al final."
+  ],
+  "Playback tools are detected automatically. Change paths only when using a custom installation.": [
+    "प्लेबैक टूल अपने आप मिलते हैं। कस्टम इंस्टॉलेशन हो तभी पाथ बदलें।",
+    "Las herramientas se detectan automáticamente. Cambia las rutas solo para instalaciones personalizadas."
+  ],
+  "YouTube Music provides your catalog and library. JioSaavn can provide matching AAC audio up to 320 kb/s; YouTube is the fallback.": [
+    "कैटलॉग और लाइब्रेरी YouTube Music से मिलते हैं। JioSaavn 320 kb/s तक AAC दे सकता है; न मिलने पर YouTube चलेगा।",
+    "YouTube Music proporciona catálogo y biblioteca. JioSaavn puede ofrecer AAC hasta 320 kb/s; YouTube es la alternativa."
+  ],
+  "Applies to newly fetched audio. Existing downloads and the buffered next song are kept. Quality depends on the available recording and source.": [
+    "यह नए ऑडियो पर लागू है। पुराने डाउनलोड और अगला बफ़र गाना रहते हैं। गुणवत्ता रिकॉर्डिंग और स्रोत पर निर्भर है।",
+    "Se aplica al audio nuevo. Se conservan las descargas y la siguiente canción en búfer. La calidad depende de la grabación y la fuente."
+  ],
+  "Until the app closes, new listening is excluded from local history, statistics and YouTube history sync. Queue restoration is disabled; existing history stays intact.": [
+    "ऐप बंद होने तक नई सुनवाई इतिहास, आँकड़ों और YouTube सिंक में नहीं जुड़ती। कतार बहाली बंद है; पुराना इतिहास रहता है।",
+    "Hasta cerrar la app, las escuchas nuevas no se guardan en historial, estadísticas ni YouTube. No se restaura la cola; el historial existente se conserva."
+  ],
+  "A song is submitted after 70% actual listening. Local listening statistics stay on this device.": [
+    "70% सुनने के बाद गाना भेजा जाता है। स्थानीय आँकड़े इसी डिवाइस पर रहते हैं।",
+    "Una canción se envía tras escuchar el 70%. Las estadísticas locales permanecen en este dispositivo."
+  ],
+  "Complete sign-in in the Google window. Cassette never receives your password.": [
+    "Google विंडो में साइन इन पूरा करें। Cassette को पासवर्ड नहीं मिलता।",
+    "Completa el inicio de sesión en Google. Cassette nunca recibe tu contraseña."
+  ],
+  "Sign in to bring your playlists and liked songs here.": [
+    "अपनी प्लेलिस्ट और पसंद के लिए साइन इन करें।",
+    "Inicia sesión para traer tus playlists y favoritos."
+  ],
+  "System media controls are connected.": [
+    "सिस्टम मीडिया नियंत्रण जुड़े हैं।",
+    "Los controles multimedia del sistema están conectados."
+  ],
+  "System media controls are unavailable in this session.": [
+    "इस सत्र में सिस्टम मीडिया नियंत्रण उपलब्ध नहीं हैं।",
+    "Los controles multimedia no están disponibles en esta sesión."
+  ],
+  "Open the tray menu to return to Cassette or quit completely.": [
+    "वापस आने या पूरी तरह बंद करने के लिए ट्रे मेनू खोलें।",
+    "Abre el menú de la bandeja para volver a Cassette o salir."
+  ],
+  "Tray hiding is unavailable on this desktop. On Linux, use an X11 session with a system tray.": [
+    "इस डेस्कटॉप पर ट्रे में छिपाना उपलब्ध नहीं है। Linux पर ट्रे वाला X11 सत्र इस्तेमाल करें।",
+    "Ocultar en bandeja no está disponible. En Linux, usa una sesión X11 con bandeja del sistema."
+  ],
+  "Shape your sound · −12 to +12 dB": [
+    "ध्वनि बदलें · −12 से +12 dB",
+    "Personaliza el sonido · −12 a +12 dB"
+  ],
+  "Drag or click to adjust · Arrow keys for fine tuning · Double-click a point to reset": [
+    "खींचें या क्लिक करें · तीर कुंजियों से बदलें · रीसेट के लिए दो बार क्लिक करें",
+    "Arrastra o pulsa para ajustar · Flechas para afinar · Doble clic para restablecer"
+  ],
+  "Album details appear as you listen.": [
+    "सुनने पर एल्बम विवरण दिखेगा।",
+    "Los detalles del álbum aparecen al escuchar."
+  ],
+  "Best available audio": [
+    "सर्वश्रेष्ठ उपलब्ध ऑडियो",
+    "Mejor audio disponible"
+  ],
+  "Finding the best available audio…": [
+    "सर्वश्रेष्ठ ऑडियो खोज रहे हैं…",
+    "Buscando el mejor audio…"
+  ],
+  "Playback could not start. Try again.": [
+    "प्लेबैक शुरू नहीं हुआ। फिर कोशिश करें।",
+    "No se pudo iniciar la reproducción. Inténtalo de nuevo."
+  ],
+  "Playback paths updated": [
+    "प्लेबैक पाथ अपडेट हुए",
+    "Rutas de reproducción actualizadas"
+  ],
+  "Playlist exported": [
+    "प्लेलिस्ट निर्यात हुई",
+    "Playlist exportada"
+  ],
+  "Cancel loading": [
+    "लोडिंग रद्द करें",
+    "Cancelar carga"
+  ],
+  "Synchronized lyrics": [
+    "समय के साथ बोल",
+    "Letras sincronizadas"
+  ],
+  "Light": [
+    "हल्का",
+    "Claro"
+  ],
+  "Dark": [
+    "गहरा",
+    "Oscuro"
+  ],
+  "Language: {}": [
+    "भाषा: {}",
+    "Idioma: {}"
+  ],
+  "Lyrics · Ctrl+L": [
+    "बोल · Ctrl+L",
+    "Letras · Ctrl+L"
+  ],
+  "Play / pause · Space": [
+    "चलाएँ / रोकें · Space",
+    "Reproducir / pausar · Space"
+  ],
+  "Back · Alt+Left": [
+    "पीछे · Alt+Left",
+    "Atrás · Alt+Left"
+  ],
+  "Fullscreen · F11": [
+    "पूरी स्क्रीन · F11",
+    "Pantalla completa · F11"
+  ],
+  "Fullscreen player · F11": [
+    "पूरी स्क्रीन का प्लेयर · F11",
+    "Reproductor en pantalla completa · F11"
+  ],
+  "Toggle sidebar · Ctrl+B": [
+    "साइडबार बदलें · Ctrl+B",
+    "Mostrar u ocultar barra lateral · Ctrl+B"
+  ],
+  "Language and size": [
+    "भाषा और आकार",
+    "Idioma y tamaño"
+  ],
+  "Interface language and display scale": [
+    "इंटरफ़ेस की भाषा और आकार",
+    "Idioma y escala de la interfaz"
+  ],
+  "Interface scale": [
+    "इंटरफ़ेस का आकार",
+    "Escala de la interfaz"
+  ],
+  "Reset size": [
+    "आकार रीसेट करें",
+    "Restablecer tamaño"
+  ],
+  "Song title, artist or album": [
+    "गीत का नाम, कलाकार या एल्बम",
+    "Título, artista o álbum"
+  ],
+  "Choose your Netscape-format YouTube cookie file": [
+    "Netscape प्रारूप में अपनी YouTube कुकी फ़ाइल चुनें",
+    "Elige tu archivo de cookies de YouTube en formato Netscape"
+  ],
+  "YouTube Music playlist": [
+    "YouTube Music प्लेलिस्ट",
+    "Lista de YouTube Music"
+  ],
+  "On this computer": [
+    "इस कंप्यूटर पर",
+    "En este equipo"
+  ],
+  "This removes the playlist from Cassette. Your local audio files are kept.": [
+    "प्लेलिस्ट Cassette से हटेगी। आपकी स्थानीय ऑडियो फ़ाइलें सुरक्षित रहेंगी।",
+    "Esto elimina la lista de Cassette. Tus archivos de audio locales se conservan."
+  ],
+  "Offline music": [
+    "ऑफ़लाइन संगीत",
+    "Música sin conexión"
+  ],
+  "Previous · Ctrl+Left": [
+    "पिछला · Ctrl+Left",
+    "Anterior · Ctrl+Left"
+  ],
+  "Next · Ctrl+Right": [
+    "अगला · Ctrl+Right",
+    "Siguiente · Ctrl+Right"
+  ],
+  "Repeat: {:?}": [
+    "दोहराएँ: {:?}",
+    "Repetir: {:?}"
+  ],
+  "Playback position; arrow keys seek five seconds": [
+    "प्लेबैक स्थिति; तीर कुंजियों से पाँच सेकंड आगे या पीछे जाएँ",
+    "Posición de reproducción; las flechas avanzan o retroceden cinco segundos"
+  ],
+  "Start song radio": [
+    "गीत रेडियो शुरू करें",
+    "Iniciar radio de la canción"
+  ],
+  "Find your next favourite.": [
+    "अपना अगला पसंदीदा खोजें।",
+    "Encuentra tu próximo favorito."
+  ],
+  "Play something that stays with you.": [
+    "कुछ ऐसा सुनें जो याद रह जाए।",
+    "Escucha algo que se quede contigo."
+  ],
+  "Could not update startup preference: {error}": [
+    "स्टार्टअप सेटिंग अपडेट नहीं हुई: {error}",
+    "No se pudo actualizar la preferencia de inicio: {error}"
+  ],
+  "Account requests are busy. Wait a moment, then sync from the profile menu.": [
+    "खाते के अनुरोध चल रहे हैं। थोड़ी देर बाद प्रोफ़ाइल मेनू से सिंक करें।",
+    "Las solicitudes de la cuenta están ocupadas. Espera y sincroniza desde el menú de perfil."
+  ],
+  "Could not queue the edit. Sign in or wait for the current changes to finish.": [
+    "बदलाव कतार में नहीं जुड़ा। साइन इन करें या मौजूदा बदलाव पूरे होने दें।",
+    "No se pudo añadir el cambio. Inicia sesión o espera a que terminen los cambios actuales."
+  ],
+  "YouTube Music: {message}": [
+    "YouTube Music: {message}",
+    "YouTube Music: {message}"
+  ],
+  "This permanently deletes the playlist from your YouTube account.": [
+    "यह आपके YouTube खाते से प्लेलिस्ट हमेशा के लिए हटा देगा।",
+    "Esto elimina permanentemente la lista de tu cuenta de YouTube."
+  ],
+  "{} theme{}": [
+    "{} थीम{}",
+    "Tema {}{}"
+  ],
+  ", selected": [
+    ", चयनित",
+    ", seleccionado"
+  ],
+  "{label} accent{}": [
+    "{label} रंग{}",
+    "Acento {label}{}"
+  ],
+  "{} {} · Local playlist": [
+    "{} {} · स्थानीय प्लेलिस्ट",
+    "{} {} · Lista local"
+  ],
+  " · Smart playlist": [
+    " · स्मार्ट प्लेलिस्ट",
+    " · Lista inteligente"
+  ],
+  "List → compact grid": [
+    "सूची से छोटे ग्रिड में बदलें",
+    "Cambiar de lista a cuadrícula compacta"
+  ],
+  "Compact grid → artwork grid": [
+    "छोटे ग्रिड से चित्र ग्रिड में बदलें",
+    "Cambiar de cuadrícula compacta a portadas"
+  ],
+  "Artwork grid → list": [
+    "चित्र ग्रिड से सूची में बदलें",
+    "Cambiar de portadas a lista"
+  ],
+  "Updating…": [
+    "अपडेट हो रहा है…",
+    "Actualizando…"
+  ],
+  "A little room for your favourites": [
+    "आपके पसंदीदा संगीत के लिए जगह",
+    "Un lugar para tus favoritos"
+  ],
+  "Trending on YouTube Music · India": [
+    "YouTube Music पर लोकप्रिय · भारत",
+    "Tendencias en YouTube Music · India"
+  ],
+  "Podcasts": [
+    "पॉडकास्ट",
+    "Pódcasts"
+  ],
+  "Explore {}": [
+    "{} खोजें",
+    "Explorar {}"
+  ],
+  "Songs, albums and the people behind them.": [
+    "गीत, एल्बम और उन्हें बनाने वाले कलाकार।",
+    "Canciones, álbumes y quienes los crean."
+  ],
+  "{count} songs · {} min": [
+    "{count} गीत · {} मिनट",
+    "{count} canciones · {} min"
+  ],
+  "{count} songs": [
+    "{count} गीत",
+    "{count} canciones"
+  ],
+  "Matching Spotify metadata on YouTube Music…": [
+    "YouTube Music पर Spotify संगीत खोज रहे हैं…",
+    "Buscando coincidencias de Spotify en YouTube Music…"
+  ],
+  "YouTube Music song": [
+    "YouTube Music गीत",
+    "Canción de YouTube Music"
+  ],
+  "Scroll to load the next songs before moving this entry further.": [
+    "इसे आगे ले जाने से पहले स्क्रॉल करके बाकी गीत लोड करें।",
+    "Desplázate para cargar las siguientes canciones antes de mover esta entrada más lejos."
+  ],
+  "Collection loading queue is full. Wait for it to finish.": [
+    "संग्रह लोड करने की कतार भरी है। पूरा होने दें।",
+    "La cola de carga está llena. Espera a que termine."
+  ],
+  "Choose a destination for the selected music.": [
+    "चुने गए संगीत के लिए प्लेलिस्ट चुनें।",
+    "Elige un destino para la música seleccionada."
+  ],
+  "{minutes} min": [
+    "{minutes} मिनट",
+    "{minutes} min"
+  ],
+  "{} available songs · {} pinned · {:.0} MiB used": [
+    "{} उपलब्ध गीत · {} पिन किए गए · {:.0} MiB उपयोग",
+    "{} canciones disponibles · {} fijadas · {:.0} MiB usados"
+  ],
+  "Download queue is full. Wait for a download to finish.": [
+    "डाउनलोड कतार भरी है। एक डाउनलोड पूरा होने दें।",
+    "La cola de descargas está llena. Espera a que termine una descarga."
+  ],
+  "{label} in {title}": [
+    "{title} में {label}",
+    "{label} en {title}"
+  ],
+  " · Offline": [
+    " · ऑफ़लाइन",
+    " · Sin conexión"
+  ],
+  "Playing from this computer": [
+    "इस कंप्यूटर से चल रहा है",
+    "Reproduciendo desde este equipo"
+  ],
+  "Offline cache: {message}": [
+    "ऑफ़लाइन कैश: {message}",
+    "Caché sin conexión: {message}"
+  ],
+  "YOUR CHARTS": [
+    "आपके चार्ट",
+    "TUS ESTADÍSTICAS"
+  ],
+  "All library entries": [
+    "संग्रह के सभी गीत",
+    "Todas las canciones de la biblioteca"
+  ],
+  "Rules match songs in your library, synced likes and history. Membership updates automatically.": [
+    "नियम आपके संग्रह, सिंक किए गए पसंदीदा गीतों और इतिहास पर लागू होते हैं। गीत अपने आप अपडेट होते हैं।",
+    "Las reglas usan tu biblioteca, favoritos sincronizados e historial. Las canciones se actualizan automáticamente."
+  ],
+  "Move folder": [
+    "फ़ोल्डर स्थान बदलें",
+    "Mover carpeta"
+  ],
+  "Top level": [
+    "मुख्य स्तर",
+    "Nivel superior"
+  ],
+  "Drop here to remove from folder": [
+    "फ़ोल्डर से निकालने के लिए यहाँ छोड़ें",
+    "Suelta aquí para sacar de la carpeta"
+  ],
+  "Version {} · Built with Rust and GPUI · Icons by Iconoir": [
+    "संस्करण {} · Rust और GPUI से बना · Iconoir के आइकन",
+    "Versión {} · Creado con Rust y GPUI · Iconos de Iconoir"
+  ],
+  "YOUR\\nCHARTS": [
+    "आपके\\nचार्ट",
+    "TUS\\nESTADÍSTICAS"
+  ]
+}

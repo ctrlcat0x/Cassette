@@ -30,6 +30,13 @@ fn main() {
         eprintln!("Cassette could not protect local data: {error}");
         return;
     }
+    if std::env::args_os().any(|arg| arg == "--verify-runtime") {
+        if let Err(error) = raag::runtime::verify() {
+            eprintln!("{error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let instance = match system::Instance::acquire(background, quit) {
         Ok(Some(instance)) => instance,
         Ok(None) => return,
@@ -62,6 +69,7 @@ fn main() {
         if let Err(error) = cx.text_system().add_fonts(vec![
             std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Inter[opsz,wght].ttf")),
             std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Manrope[wght].ttf")),
+            std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/NotoSansDevanagari.ttf")),
         ]) {
             eprintln!("Could not register bundled fonts: {error}");
         }

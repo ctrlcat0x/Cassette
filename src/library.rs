@@ -13,6 +13,8 @@ pub struct Playlist {
     pub id: String,
     pub name: String,
     pub tracks: Vec<Track>,
+    #[serde(default)]
+    pub smart: Option<crate::organization::SmartRule>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +41,13 @@ impl PlaylistView {
 #[serde(default)]
 #[non_exhaustive]
 pub struct Library {
+    pub lyrics: crate::lyrics::Preferences,
+    pub language: String,
+    pub ui_scale: f32,
+    pub folders: Vec<crate::organization::Folder>,
+    pub playlist_metadata: std::collections::HashMap<String, crate::organization::PlaylistMetadata>,
+    pub active_folder: Option<String>,
+    pub playlist_order: Vec<String>,
     pub liked: Vec<Track>,
     pub history: Vec<Track>,
     pub local: Vec<Track>,
@@ -72,6 +81,13 @@ pub struct Library {
 impl Default for Library {
     fn default() -> Self {
         Self {
+            lyrics: Default::default(),
+            language: "en".into(),
+            ui_scale: 1.,
+            folders: vec![],
+            playlist_metadata: Default::default(),
+            active_folder: None,
+            playlist_order: vec![],
             liked: vec![],
             history: vec![],
             local: vec![],
@@ -111,6 +127,20 @@ impl Library {
         }
         let mut library: Self = crate::resource::json(fs::File::open(path)?, 64 * 1024 * 1024)
             .context("Library could not be read. The original file has been kept.")?;
+        library.ui_scale = if library.ui_scale.is_finite() {
+            library.ui_scale.clamp(0.75, 1.75)
+        } else {
+            1.
+        };
+        library.lyrics.text_scale = if library.lyrics.text_scale.is_finite() {
+            library.lyrics.text_scale.clamp(0.75, 1.75)
+        } else {
+            1.
+        };
+        if !["en", "hi", "es"].contains(&library.language.as_str()) {
+            library.language = "en".into();
+        }
+        library.validate_organization();
         library.volume = if library.volume.is_finite() {
             library.volume.clamp(0., 100.)
         } else {
@@ -166,6 +196,7 @@ impl Library {
             id: id.clone(),
             name: name.into(),
             tracks: vec![],
+            smart: None,
         });
         Ok(id)
     }
@@ -176,6 +207,9 @@ impl Library {
             .iter_mut()
             .find(|p| p.id == playlist_id)
             .context("Playlist no longer exists")?;
+        if playlist.smart.is_some() {
+            bail!("Smart playlists update automatically. Edit their rules instead.");
+        }
         if !playlist.tracks.iter().any(|t| t.id == track.id) {
             playlist.tracks.push(track);
         }
@@ -194,7 +228,11 @@ impl Library {
         Ok(())
     }
     pub fn remove_from_playlist(&mut self, playlist_id: &str, track_id: &str) {
-        if let Some(playlist) = self.playlists.iter_mut().find(|p| p.id == playlist_id) {
+        if let Some(playlist) = self
+            .playlists
+            .iter_mut()
+            .find(|p| p.id == playlist_id && p.smart.is_none())
+        {
             playlist.tracks.retain(|t| t.id != track_id);
         }
     }

@@ -37,7 +37,7 @@ impl Raag {
                 .min_w_0()
                 .cursor_pointer()
                 .hover(|div| div.underline())
-                .accessibility_label(format!("Open artist {name}"))
+                .accessibility_label(tr!("Open artist {name}"))
                 .child(div().min_w_0().truncate().child(name))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     if this.immersive {
@@ -63,7 +63,7 @@ impl Raag {
             .justify_start()
             .cursor_pointer()
             .hover(|div| div.underline())
-            .accessibility_label(format!("Open artist {}", track.title))
+            .accessibility_label(tr!("Open artist {}", track.title))
             .child(div().truncate().child(track.title.clone()))
             .on_click(cx.listener(move |this, _, _, cx| this.open_track(owned.clone(), cx)))
             .into_any_element()

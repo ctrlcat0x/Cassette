@@ -119,11 +119,11 @@ pub fn apply(
         cx,
     );
     Theme::update(cx, |theme| {
-        theme.font_size = px(16.);
+        theme.font_size = px(16. * library.ui_scale);
         theme.radius = px(8.);
         theme.radius_lg = px(20.);
         theme.focus_ring = true;
-        theme.font_family = "Inter".into();
+        theme.font_family = raag::i18n::font().into();
         let color = |token| -> Hsla { rgb(palette.color(token)).into() };
         let c = &mut theme.colors;
         c.background = color("background");

@@ -61,10 +61,10 @@ impl Raag {
                     .w(px(extent))
                     .justify_start()
                     .cursor_pointer()
-                    .accessibility_label(format!(
+                    .accessibility_label(tr!(
                         "{} theme{}",
                         palette.label,
-                        if active { ", selected" } else { "" }
+                        if active { t(", selected") } else { "" }
                     ))
                     .child(self.theme_preview(palette, extent, active, cx))
                     .child(
@@ -93,9 +93,9 @@ impl Raag {
             .child(
                 div()
                     .text_xl()
-                    .font_family("Manrope")
+                    .font_family(raag::i18n::font())
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("Appearance"),
+                    .child(t("Appearance")),
             )
             .child(
                 div()
@@ -106,13 +106,13 @@ impl Raag {
                         div()
                             .text_sm()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Theme"),
+                            .child(t("Theme")),
                     )
                     .child(
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child("Choose a home for your music."),
+                            .child(t("Choose a home for your music.")),
                     ),
             )
             .child(tiles)
@@ -120,9 +120,9 @@ impl Raag {
                 Button::new("browse-themes")
                     .ghost()
                     .label(if self.show_all_themes {
-                        "Show fewer themes"
+                        t("Show fewer themes")
                     } else {
-                        "Browse all themes"
+                        t("Browse all themes")
                     })
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.show_all_themes = !this.show_all_themes;
@@ -146,9 +146,9 @@ impl Raag {
                         } else {
                             rgb(color).into()
                         })
-                        .accessibility_label(format!(
+                        .accessibility_label(tr!(
                             "{label} accent{}",
-                            if active { ", selected" } else { "" }
+                            if active { t(", selected") } else { "" }
                         ))
                         .when(active, |button| {
                             button.child(
@@ -170,8 +170,8 @@ impl Raag {
                     .size_10()
                     .rounded_full()
                     .selected(self.library.magic_accent)
-                    .tooltip("Magic accent · follows the current artwork")
-                    .accessibility_label("Magic accent from current artwork")
+                    .tooltip(t("Magic accent · follows the current artwork"))
+                    .accessibility_label(t("Magic accent from current artwork"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.library.magic_accent = true;
                         this.apply_appearance(cx);
@@ -179,15 +179,17 @@ impl Raag {
                     })),
             );
             appearance = appearance.child(div().flex().flex_col().gap_3().mt_2()
-                .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child("Accent colour"))
-                .child(div().text_xs().text_color(cx.theme().muted_foreground).child(if self.library.magic_accent { "Magic follows your artwork. Without artwork, the accent is black in Light and white in Dark." } else { "Choose a colour, or let Magic follow the song." }))
+                .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(t("Accent colour")))
+                .child(div().text_xs().text_color(cx.theme().muted_foreground).child(if self.library.magic_accent { t("Magic follows your artwork. Without artwork, the accent is black in Light and white in Dark.") } else { t("Choose a colour, or let Magic follow the song.") }))
                 .child(accents));
         } else {
             appearance = appearance.child(
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child("This theme includes its own accent and component colours."),
+                    .child(t(t(
+                        "This theme includes its own accent and component colours.",
+                    ))),
             );
         }
         appearance.into_any_element()
@@ -210,11 +212,13 @@ impl Raag {
             .flex_col()
             .gap_1();
         for index in 0..5 {
-            sidebar = sidebar.child(div().h(px(3.)).w_full().rounded_full().bg(c(if index == 0 {
-                "primary"
-            } else {
-                "border"
-            })));
+            sidebar = sidebar.child(
+                div()
+                    .h(ui_px(3.))
+                    .w_full()
+                    .rounded_full()
+                    .bg(c(if index == 0 { "primary" } else { "border" })),
+            );
         }
         div()
             .relative()
@@ -222,7 +226,7 @@ impl Raag {
             .gap_2()
             .p_3()
             .w(px(width))
-            .h(px(96.))
+            .h(ui_px(96.))
             .rounded_lg()
             .bg(c("background"))
             .border_2()
@@ -240,15 +244,15 @@ impl Raag {
                     .gap_2()
                     .child(
                         div()
-                            .h(px(5.))
+                            .h(ui_px(5.))
                             .w(relative(0.45))
                             .rounded_full()
                             .bg(c("foreground")),
                     )
-                    .child(div().h(px(3.)).w_full().rounded_full().bg(c("border")))
+                    .child(div().h(ui_px(3.)).w_full().rounded_full().bg(c("border")))
                     .child(
                         div()
-                            .h(px(3.))
+                            .h(ui_px(3.))
                             .w(relative(0.8))
                             .rounded_full()
                             .bg(c("border")),

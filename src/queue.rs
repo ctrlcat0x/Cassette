@@ -246,6 +246,16 @@ impl Queue {
         }
     }
 
+    pub fn move_to(&mut self, from: usize, to: usize) {
+        if from >= self.order.len() || to >= self.order.len() || from == to {
+            return;
+        }
+        let current = self.cursor.and_then(|i| self.order.get(i)).copied();
+        let item = self.order.remove(from);
+        self.order.insert(to, item);
+        self.cursor = current.and_then(|item| self.order.iter().position(|i| *i == item));
+    }
+
     pub fn clear_upcoming(&mut self) {
         if let Some(cursor) = self.cursor {
             self.order.truncate(cursor + 1);

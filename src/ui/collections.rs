@@ -13,7 +13,7 @@ pub(super) struct CollectionEntry {
 impl Raag {
     pub(super) fn playlist_entries(&self, limit: usize) -> Vec<CollectionEntry> {
         let remote = self.account.page(&Key::Section(AccountSection::Playlists));
-        remote
+        let mut entries: Vec<CollectionEntry> = remote
             .into_iter()
             .flat_map(|page| &page.tracks)
             .take(limit)
@@ -33,7 +33,7 @@ impl Raag {
                 CollectionEntry {
                     track,
                     local: true,
-                    detail: format!(
+                    detail: tr!(
                         "{} {} · Local playlist",
                         playlist.tracks.len(),
                         if playlist.tracks.len() == 1 {
@@ -44,7 +44,35 @@ impl Raag {
                     ),
                 }
             }))
-            .collect()
+            .collect();
+        for entry in &mut entries {
+            let key = entry.track.id.strip_prefix("VL").unwrap_or(&entry.track.id);
+            if let Some(cover) = self
+                .library
+                .playlist_metadata
+                .get(key)
+                .and_then(|meta| meta.cover.as_ref())
+            {
+                entry.track.artwork = Some(cover.to_string_lossy().into_owned());
+            }
+            if entry.local
+                && self
+                    .library
+                    .playlists
+                    .iter()
+                    .any(|p| p.id == entry.track.id && p.smart.is_some())
+            {
+                entry.detail.push_str(t(" · Smart playlist"));
+            }
+        }
+        entries.sort_by_key(|entry| {
+            self.library
+                .playlist_order
+                .iter()
+                .position(|id| id == entry.track.id.strip_prefix("VL").unwrap_or(&entry.track.id))
+                .unwrap_or(usize::MAX)
+        });
+        entries
     }
 
     fn open_collection_entry(&mut self, entry: &CollectionEntry, cx: &mut Context<Self>) {
@@ -81,9 +109,9 @@ impl Raag {
     pub(super) fn sidebar_playlists(&self, cx: &mut Context<Self>) -> AnyElement {
         let mode = self.library.playlist_view;
         let (image, label) = match mode {
-            PlaylistView::List => ("view-list", "List → compact grid"),
-            PlaylistView::CompactGrid => ("grid-small", "Compact grid → artwork grid"),
-            PlaylistView::ArtworkGrid => ("grid-large", "Artwork grid → list"),
+            PlaylistView::List => ("view-list", t("List → compact grid")),
+            PlaylistView::CompactGrid => ("grid-small", t("Compact grid → artwork grid")),
+            PlaylistView::ArtworkGrid => ("grid-large", t("Artwork grid → list")),
         };
         let mut body = div()
             .id("sidebar-playlists")
@@ -103,7 +131,7 @@ impl Raag {
                         div()
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
-                            .child("Playlists"),
+                            .child(t("Playlists")),
                     )
                     .child(
                         div()
@@ -116,7 +144,7 @@ impl Raag {
                                     .small()
                                     .icon(icon(image))
                                     .tooltip(label)
-                                    .accessibility_label(format!("Playlist view: {label}"))
+                                    .accessibility_label(tr!("Playlist view: {label}"))
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.library.playlist_view =
                                             this.library.playlist_view.next();
@@ -132,8 +160,8 @@ impl Raag {
                                     .ghost()
                                     .small()
                                     .icon(icon("plus"))
-                                    .tooltip("Create playlist")
-                                    .accessibility_label("Create playlist")
+                                    .tooltip(t("Create playlist"))
+                                    .accessibility_label(t("Create playlist"))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.begin_playlist(this.signed_in(), window, cx);
                                     })),
@@ -148,7 +176,7 @@ impl Raag {
                     .py_2()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child("Make room for your favourites."),
+                    .child(t("Make room for your favourites.")),
             );
         }
         let columns = match mode {
@@ -181,7 +209,7 @@ impl Raag {
                 .border_1()
                 .border_color(cx.theme().border.opacity(0.))
                 .cursor_pointer()
-                .accessibility_label(format!("Open playlist {title}"))
+                .accessibility_label(tr!("Open playlist {title}"))
                 .tooltip(move |window, cx| Tooltip::new(title.clone()).build(window, cx))
                 .hover(|button| button.bg(cx.theme().muted))
                 .focus_visible(|button| button.border_color(cx.theme().primary))
@@ -194,10 +222,27 @@ impl Raag {
                 .on_click(
                     cx.listener(move |this, _, _, cx| this.open_collection_entry(&owned, cx)),
                 );
+                let id = entry
+                    .track
+                    .id
+                    .strip_prefix("VL")
+                    .unwrap_or(&entry.track.id)
+                    .to_owned();
+                let target = id.clone();
+                button = button
+                    .on_drag(PlaylistDrag(id), |drag, _, _, cx| {
+                        cx.new(|_| DragPreview(drag.0.clone()))
+                    })
+                    .drag_over::<PlaylistDrag>(|s, _, _, cx| {
+                        s.border_t_2().border_color(cx.theme().primary)
+                    })
+                    .on_drop(cx.listener(move |this, drag: &PlaylistDrag, _, cx| {
+                        this.reorder_playlist(&drag.0, &target, cx)
+                    }));
                 if mode == PlaylistView::List {
                     button = button
                         .w_full()
-                        .h(px(48.))
+                        .h(ui_px(48.))
                         .items_center()
                         .justify_start()
                         .child(
@@ -255,7 +300,26 @@ impl Raag {
         .cursor_pointer()
         .hover(|button| button.bg(cx.theme().muted))
         .focus_visible(|button| button.bg(cx.theme().muted).text_color(cx.theme().primary))
-        .accessibility_label(format!("Open {}", entry.track.title))
+        .accessibility_label(tr!("Open {}", entry.track.title))
+        .when(entry.track.kind == ItemKind::Playlist, |button| {
+            let id = entry
+                .track
+                .id
+                .strip_prefix("VL")
+                .unwrap_or(&entry.track.id)
+                .to_owned();
+            let target = id.clone();
+            button
+                .on_drag(PlaylistDrag(id), |drag, _, _, cx| {
+                    cx.new(|_| DragPreview(drag.0.clone()))
+                })
+                .drag_over::<PlaylistDrag>(|s, _, _, cx| {
+                    s.border_t_2().border_color(cx.theme().primary)
+                })
+                .on_drop(cx.listener(move |this, drag: &PlaylistDrag, _, cx| {
+                    this.reorder_playlist(&drag.0, &target, cx)
+                }))
+        })
         .child(
             div()
                 .size(px(extent - 16.))
@@ -323,8 +387,8 @@ impl Raag {
                     .gap_4()
                     .flex_shrink_0()
                     .child(self.page_heading(
-                        "Your library",
-                        "The music you keep coming back to.",
+                        t("Your library"),
+                        t("The music you keep coming back to."),
                         cx,
                     ))
                     .child(
@@ -336,7 +400,7 @@ impl Raag {
                                 Button::new("library-create")
                                     .primary()
                                     .icon(icon("plus"))
-                                    .label("New playlist")
+                                    .label(t("New playlist"))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.begin_playlist(this.signed_in(), window, cx)
                                     })),
@@ -345,14 +409,14 @@ impl Raag {
                                 Button::new("library-actions")
                                     .ghost()
                                     .icon(icon("more"))
-                                    .tooltip("Library actions")
-                                    .accessibility_label("Library actions")
+                                    .tooltip(t("Library actions"))
+                                    .accessibility_label(t("Library actions"))
                                     .dropdown_menu(move |mut menu, _, _| {
                                         for (label, command) in [
-                                            ("Import playlist…", 0),
-                                            ("New local playlist…", 1),
-                                            ("Local files", 2),
-                                            ("Liked songs", 3),
+                                            (t("Import playlist…"), 0),
+                                            (t("New local playlist…"), 1),
+                                            (t("Local files"), 2),
+                                            (t("Liked songs"), 3),
                                         ] {
                                             let owner = owner.clone();
                                             menu =
@@ -424,6 +488,9 @@ impl Raag {
             AccountSection::Playlists | AccountSection::Albums | AccountSection::Artists
         );
         body = body.child(self.collection_tools(cx));
+        if section == AccountSection::Playlists {
+            body = body.child(self.organization_controls(cx));
+        }
         let mut entries = if section == AccountSection::Playlists {
             self.playlist_entries(usize::MAX)
         } else if gallery {
@@ -431,7 +498,7 @@ impl Raag {
                 .into_iter()
                 .map(|track| {
                     let detail = if track.kind == ItemKind::Artist {
-                        "Artist".into()
+                        t("Artist").into()
                     } else {
                         track.artist.clone()
                     };
@@ -445,6 +512,17 @@ impl Raag {
         } else {
             vec![]
         };
+        if section == AccountSection::Playlists
+            && let Some(folder) = &self.library.active_folder
+        {
+            entries.retain(|entry| {
+                self.library
+                    .playlist_metadata
+                    .get(entry.track.id.strip_prefix("VL").unwrap_or(&entry.track.id))
+                    .and_then(|m| m.folder.as_ref())
+                    == Some(folder)
+            });
+        }
         if gallery {
             entries.retain(|entry| {
                 format!("{} {}", entry.track.title, entry.detail)
@@ -481,7 +559,7 @@ impl Raag {
                         .child(
                             div()
                                 .text_lg()
-                                .font_family("Manrope")
+                                .font_family(raag::i18n::font())
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .child(section.title()),
                         )
@@ -500,11 +578,11 @@ impl Raag {
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
                         .child(if loading {
-                            "Updating…"
+                            t("Updating…")
                         } else if signed_in {
                             "YouTube Music"
                         } else {
-                            "On this computer"
+                            t("On this computer")
                         }),
                 ),
         );
@@ -526,12 +604,12 @@ impl Raag {
                     .child(
                         div()
                             .text_lg()
-                            .font_family("Manrope")
+                            .font_family(raag::i18n::font())
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(if loading {
-                                "Finding your music…"
+                                t("Finding your music…")
                             } else {
-                                "A little room for your favourites"
+                                t("A little room for your favourites")
                             }),
                     )
                     .child(
@@ -540,11 +618,11 @@ impl Raag {
                             .text_color(cx.theme().muted_foreground)
                             .text_center()
                             .child(if loading {
-                                "Your collection will appear here."
+                                t("Your collection will appear here.")
                             } else if section == AccountSection::Playlists {
-                                "Create a playlist or import one from the menu above."
+                                t("Create a playlist or import one from the menu above.")
                             } else {
-                                "Save music in YouTube Music, then sync from your profile menu."
+                                t("Save music in YouTube Music, then sync from your profile menu.")
                             }),
                     ),
             );

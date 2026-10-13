@@ -17,7 +17,7 @@ impl Raag {
             .child(
                 div()
                     .text_3xl()
-                    .font_family("Manrope")
+                    .font_family(raag::i18n::font())
                     .font_weight(FontWeight::BOLD)
                     .child(title.into()),
             )
@@ -31,15 +31,21 @@ impl Raag {
     pub(super) fn section_heading(&self, title: &str) -> Div {
         div()
             .text_xl()
-            .font_family("Manrope")
+            .font_family(raag::i18n::font())
             .font_weight(FontWeight::SEMIBOLD)
             .child(title.to_owned())
     }
     fn filter_bar(&self, cx: &mut Context<Self>) -> Div {
         let mut row = div().flex().gap_2().flex_shrink_0();
-        for (ix, label) in ["All", "Songs", "Albums", "Artists", "Playlists"]
-            .into_iter()
-            .enumerate()
+        for (ix, label) in [
+            t("All"),
+            t("Songs"),
+            t("Albums"),
+            t("Artists"),
+            t("Playlists"),
+        ]
+        .into_iter()
+        .enumerate()
         {
             row = row.child(
                 Button::new(("search-kind", ix))
@@ -98,7 +104,11 @@ impl Raag {
                     .hover(|button| button.opacity(0.86))
                     .accessibility_label(format!(
                         "{} {}",
-                        if track.playable() { "Play" } else { "Open" },
+                        if track.playable() {
+                            t("Play")
+                        } else {
+                            t("Open")
+                        },
                         track.title
                     ))
                     .child(self.cover(track, rems(extent / f32::from(cx.theme().font_size)), cx))
@@ -119,7 +129,7 @@ impl Raag {
                     .text_color(cx.theme().muted_foreground)
                     .min_w_0()
                     .child(if artist {
-                        div().child("Artist").into_any_element()
+                        div().child(t("Artist")).into_any_element()
                     } else {
                         self.artist_link(track, cx)
                     }),
@@ -187,12 +197,12 @@ impl Raag {
             .items_center()
             .gap_3()
             .w_full()
-            .h(px(68.))
+            .h(ui_px(68.))
             .px_2()
             .rounded_lg()
             .when(current, |button| button.bg(cx.theme().muted))
             .hover(|button| button.bg(cx.theme().muted))
-            .accessibility_label(format!("Play {} by {}", track.title, track.artist))
+            .accessibility_label(tr!("Play {} by {}", track.title, track.artist))
             .child(self.cover(track, rems(2.75), cx))
             .child(
                 div()
@@ -224,16 +234,16 @@ impl Raag {
         let genres =
             matches!(&self.screen, Screen::Discover(id, _, _) if id == "FEmusic_moods_and_genres");
         let title = if self.screen == Screen::Explore {
-            "Explore"
+            t("Explore")
         } else {
             self.screen.title()
         };
         let subtitle = if charts {
-            "Trending on YouTube Music · India"
+            t("Trending on YouTube Music · India")
         } else if genres {
-            "A soundtrack for every mood. A place for every genre."
+            t("A soundtrack for every mood. A place for every genre.")
         } else {
-            "New releases, favourite artists and your next discovery."
+            t("New releases, favourite artists and your next discovery.")
         };
         let mut content = self
             .scroll
@@ -248,10 +258,10 @@ impl Raag {
             .child(self.page_heading(title, subtitle, cx));
         let mut routes = div().flex().gap_3().flex_shrink_0();
         for (label, id) in [
-            ("For you", "FEmusic_explore"),
-            ("Charts", "FEmusic_charts"),
-            ("Moods & genres", "FEmusic_moods_and_genres"),
-            ("New releases", "FEmusic_new_releases"),
+            (t("For you"), "FEmusic_explore"),
+            (t("Charts"), "FEmusic_charts"),
+            (t("Moods & genres"), "FEmusic_moods_and_genres"),
+            (t("New releases"), "FEmusic_new_releases"),
         ] {
             let screen = Screen::Discover(id.into(), String::new(), label.into());
             let selected = matches!(&self.screen, Screen::Discover(current, _, _) if current == id)
@@ -298,14 +308,14 @@ impl Raag {
                         .flex()
                         .items_center()
                         .w(px(width))
-                        .h(px(76.))
+                        .h(ui_px(76.))
                         .px_5()
                         .rounded_xl()
                         .bg(cx.theme().primary.opacity(0.10))
                         .border_1()
                         .border_color(cx.theme().primary.opacity(0.16))
                         .hover(|button| button.bg(cx.theme().primary.opacity(0.20)))
-                        .accessibility_label(format!("Explore {}", destination.title))
+                        .accessibility_label(tr!("Explore {}", destination.title))
                         .child(
                             div()
                                 .flex_1()
@@ -329,9 +339,9 @@ impl Raag {
                     .gap_4()
                     .flex_shrink_0()
                     .child(self.section_heading(if genres {
-                        "Find your mood"
+                        t("Find your mood")
                     } else {
-                        "Moods & genres"
+                        t("Moods & genres")
                     }))
                     .child(tiles),
             );
@@ -354,7 +364,7 @@ impl Raag {
             } else {
                 content = content.child(self.shelf(
                     if section.title.is_empty() {
-                        "Explore music"
+                        t("Explore music")
                     } else {
                         &section.title
                     },
@@ -396,8 +406,13 @@ impl Raag {
     fn discovery_loading(&self, cx: &App) -> Div {
         let mut placeholders = div().flex().gap_5().flex_shrink_0();
         for _ in 0..4 {
-            placeholders =
-                placeholders.child(div().flex_1().h(px(156.)).rounded_lg().bg(cx.theme().muted));
+            placeholders = placeholders.child(
+                div()
+                    .flex_1()
+                    .h(ui_px(156.))
+                    .rounded_lg()
+                    .bg(cx.theme().muted),
+            );
         }
         div()
             .flex()
@@ -412,24 +427,24 @@ impl Raag {
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
                     .child(gpui_kit::component::spinner::Spinner::new().small())
-                    .child("Loading music…"),
+                    .child(t("Loading music…")),
             )
             .child(placeholders)
     }
     pub(super) fn pagination_status(&self, cx: &App) -> Div {
         div()
-            .h(px(28.))
+            .h(ui_px(28.))
             .flex_shrink_0()
             .text_sm()
             .text_color(cx.theme().muted_foreground)
             .flex()
             .items_center()
             .justify_center()
-            .when(self.loading, |div| div.child("Loading more…"))
+            .when(self.loading, |div| div.child(t("Loading more…")))
     }
     pub(super) fn search_screen(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
-        let heading = format!("Results for “{}”", self.search_query);
-        let header = self.page_heading(heading, "Songs, albums and the people behind them.", cx);
+        let heading = tr!("Results for “{}”", self.search_query);
+        let header = self.page_heading(heading, t("Songs, albums and the people behind them."), cx);
         if self.search_filter > 0 {
             let mut body = div()
                 .flex()
@@ -515,8 +530,8 @@ impl Raag {
             .flex_shrink_0()
             .when(stacked, |div| div.flex_col());
         for (title, kind, filter) in [
-            ("Artists", ItemKind::Artist, 3),
-            ("Albums", ItemKind::Album, 2),
+            (t("Artists"), ItemKind::Artist, 3),
+            (t("Albums"), ItemKind::Album, 2),
         ] {
             let tracks: Vec<_> = self
                 .visible
@@ -545,7 +560,7 @@ impl Raag {
                                 Button::new(SharedString::from(format!("all-{title}")))
                                     .ghost()
                                     .small()
-                                    .label("Show all")
+                                    .label(t("Show all"))
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.filter_search(filter, cx)
                                     })),
@@ -591,12 +606,12 @@ impl Raag {
                             .flex()
                             .items_center()
                             .justify_between()
-                            .child(self.section_heading("Songs"))
+                            .child(self.section_heading(t("Songs")))
                             .child(
                                 Button::new("all-songs")
                                     .ghost()
                                     .small()
-                                    .label("Show all songs")
+                                    .label(t("Show all songs"))
                                     .on_click(
                                         cx.listener(|this, _, _, cx| this.filter_search(1, cx)),
                                     ),
@@ -612,7 +627,7 @@ impl Raag {
             .cloned()
             .collect();
         if !playlists.is_empty() {
-            body = body.child(self.shelf("Playlists", &playlists, window, cx));
+            body = body.child(self.shelf(t("Playlists"), &playlists, window, cx));
         }
         let mut previewed = std::collections::HashSet::new();
         for kind in [
@@ -648,7 +663,7 @@ impl Raag {
                     .flex_col()
                     .gap_4()
                     .flex_shrink_0()
-                    .child(self.section_heading("More results"))
+                    .child(self.section_heading(t("More results")))
                     .child(self.card_grid(&remaining, columns, extent, cx)),
             );
         }
@@ -704,6 +719,15 @@ impl Raag {
         if hero.artwork.is_none() {
             hero.artwork = self.catalog.iter().find_map(|track| track.artwork.clone());
         }
+        if let Screen::Collection(id, _, _) = &self.screen
+            && let Some(path) = self
+                .library
+                .playlist_metadata
+                .get(id.strip_prefix("VL").unwrap_or(id))
+                .and_then(|m| m.cover.as_ref())
+        {
+            hero.artwork = Some(path.to_string_lossy().into_owned());
+        }
         hero
     }
     fn collection_hero(&self, artist: bool, window: &Window, cx: &mut Context<Self>) -> AnyElement {
@@ -727,7 +751,11 @@ impl Raag {
                         button.bg(rgb(0xffffff)).text_color(rgb(0x15151a))
                     })
                     .icon(icon("play"))
-                    .label(if artist { "Play top songs" } else { "Play" })
+                    .label(if artist {
+                        t("Play top songs")
+                    } else {
+                        t("Play")
+                    })
                     .disabled(!self.visible.iter().any(Track::playable))
                     .on_click(cx.listener(|this, _, _, cx| {
                         if let Some(track) = this.visible.iter().find(|t| t.playable()).cloned() {
@@ -741,7 +769,7 @@ impl Raag {
                     .rounded_full()
                     .when(artist, |button| button.text_color(rgb(0xffffff)))
                     .icon(icon("shuffle"))
-                    .label("Shuffle")
+                    .label(t("Shuffle"))
                     .disabled(!self.visible.iter().any(Track::playable))
                     .on_click(cx.listener(|this, _, _, cx| {
                         if let Some(track) = this.visible.iter().find(|t| t.playable()).cloned() {
@@ -769,7 +797,11 @@ impl Raag {
                         .ghost()
                         .rounded_full()
                         .text_color(rgb(0xffffff))
-                        .label(if followed { "Following" } else { "Follow" })
+                        .label(if followed {
+                            t("Following")
+                        } else {
+                            t("Follow")
+                        })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.account_edit(
                                 Edit::Follow {
@@ -803,9 +835,9 @@ impl Raag {
                             .ghost()
                             .rounded_full()
                             .label(if saved {
-                                "Remove from library"
+                                t("Remove from library")
                             } else {
-                                "Save to library"
+                                t("Save to library")
                             })
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.account_edit(
@@ -829,14 +861,14 @@ impl Raag {
                 Button::new("collection-edit")
                     .ghost()
                     .icon(icon("more"))
-                    .tooltip("Playlist actions")
-                    .accessibility_label("Playlist actions")
+                    .tooltip(t("Playlist actions"))
+                    .accessibility_label(t("Playlist actions"))
                     .dropdown_menu(move |mut menu, _, _| {
                         for (label, command) in [
-                            ("Add playing song", 0),
-                            ("Rename playlist", 1),
-                            ("Export playlist…", 2),
-                            ("Remove playlist…", 3),
+                            (t("Add playing song"), 0),
+                            (t("Rename playlist"), 1),
+                            (t("Export playlist…"), 2),
+                            (t("Remove playlist…"), 3),
                         ] {
                             let owner = owner.clone();
                             let id = id.clone();
@@ -914,7 +946,7 @@ impl Raag {
                 .child(
                     div()
                         .absolute()
-                        .bottom(px(42.))
+                        .bottom(ui_px(42.))
                         .left_8()
                         .right_8()
                         .flex()
@@ -924,7 +956,7 @@ impl Raag {
                         .text_color(rgb(0xffffff))
                         .child(
                             div()
-                                .font_family("Manrope")
+                                .font_family(raag::i18n::font())
                                 .text_size(px(if self.layout_width(window) > 800. {
                                     60.
                                 } else {
@@ -942,7 +974,7 @@ impl Raag {
                         .absolute()
                         .bottom_0()
                         .w_full()
-                        .h(px(40.))
+                        .h(ui_px(40.))
                         .bg(linear_gradient(
                             0.,
                             linear_color_stop(background, 0.),
@@ -955,9 +987,9 @@ impl Raag {
         let count = playable.clone().count();
         let seconds: u64 = playable.map(|track| track.duration).sum();
         let info = if seconds > 0 {
-            format!("{count} songs · {} min", seconds / 60)
+            tr!("{count} songs · {} min", seconds / 60)
         } else {
-            format!("{count} songs")
+            tr!("{count} songs")
         };
         let width = self.content_width(window).max(320.);
         let narrow = ((1100. - width) / 220.).clamp(0., 1.);
@@ -1029,14 +1061,14 @@ impl Raag {
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(cx.theme().muted_foreground)
                             .child(if hero.kind == ItemKind::Album {
-                                "Album"
+                                t("Album")
                             } else {
-                                "Playlist"
+                                t("Playlist")
                             }),
                     )
                     .child(
                         div()
-                            .font_family("Manrope")
+                            .font_family(raag::i18n::font())
                             .text_size(px(blend(34., 22.)))
                             .font_weight(FontWeight::BOLD)
                             .line_height(relative(1.12))
@@ -1047,7 +1079,7 @@ impl Raag {
                         info.child(
                             div()
                                 .text_size(px(blend(20., 14.)))
-                                .font_family("Manrope")
+                                .font_family(raag::i18n::font())
                                 .child(self.artist_link(&hero, cx)),
                         )
                     })
@@ -1099,9 +1131,9 @@ impl Raag {
                     )))
                     .flex()
                     .items_center()
-                    .child(div().flex_basis(px(0.)).flex_grow(phase).min_w_0())
+                    .child(div().flex_basis(ui_px(0.)).flex_grow(phase).min_w_0())
                     .child(actions.gap_2().min_w_0().flex_shrink_1())
-                    .child(div().flex_basis(px(0.)).flex_grow(1. - phase).min_w_0()),
+                    .child(div().flex_basis(ui_px(0.)).flex_grow(1. - phase).min_w_0()),
             )
             .into_any_element()
     }
@@ -1143,7 +1175,7 @@ impl Raag {
                     );
                     picture
                         .when_some(soft.clone(), |picture, path| {
-                            picture.child(div_placeholder(path.into(), 1. - phase, px(0.)))
+                            picture.child(div_placeholder(path.into(), 1. - phase, ui_px(0.)))
                         })
                         .child(div().absolute().inset_0().opacity(phase).child(
                             crate::images::picture_top_keyed(
@@ -1213,7 +1245,7 @@ impl Raag {
             .gap_3()
             .px_8()
             .flex_shrink_0()
-            .child(self.section_heading("Top songs"));
+            .child(self.section_heading(t("Top songs")));
         for chunk in songs.chunks(columns) {
             let mut row = div().flex().gap_5().w_full();
             for track in chunk {
@@ -1236,7 +1268,7 @@ impl Raag {
             if section.tracks.iter().any(|t| !t.playable()) {
                 body = body.child(div().px_8().child(self.shelf(
                     if section.title.is_empty() {
-                        "More to explore"
+                        t("More to explore")
                     } else {
                         &section.title
                     },
@@ -1257,7 +1289,7 @@ impl Raag {
                     .mx_8()
                     .border_t_1()
                     .border_color(cx.theme().border)
-                    .child(self.section_heading(&format!("About {}", self.page.title)))
+                    .child(self.section_heading(&tr!("About {}", self.page.title)))
                     .child(
                         div()
                             .text_sm()

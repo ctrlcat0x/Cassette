@@ -1,7 +1,7 @@
 //! Free, native lyric providers. Timings are used only when supplied by the provider.
 use crate::{
     Track,
-    catalog::{LyricLine, parse_lrc},
+    catalog::{LyricLine, LyricWord, parse_lrc},
 };
 use anyhow::{Result, bail};
 use reqwest::blocking::Client;
@@ -19,8 +19,88 @@ pub struct Lyrics {
     pub provider: String,
     pub instrumental: bool,
 }
+impl Lyrics {
+    pub fn custom(lines: Vec<LyricLine>) -> Self {
+        Self {
+            lines,
+            provider: "Custom lyrics".into(),
+            instrumental: false,
+        }
+    }
+}
 static LRCLIB_POLICY: OnceLock<crate::request_policy::RequestPolicy> = OnceLock::new();
 static HTTP: OnceLock<Client> = OnceLock::new();
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Source {
+    #[default]
+    Auto,
+    Lrclib,
+    BiniLyrics,
+    LrcRed,
+    LyricsPlus,
+    YouTube,
+}
+impl Source {
+    pub const ALL: [Self; 6] = [
+        Self::Auto,
+        Self::Lrclib,
+        Self::BiniLyrics,
+        Self::LrcRed,
+        Self::LyricsPlus,
+        Self::YouTube,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => crate::i18n::t("Automatic"),
+            Self::Lrclib => crate::i18n::t("LRCLIB"),
+            Self::BiniLyrics => crate::i18n::t("BiniLyrics"),
+            Self::LrcRed => crate::i18n::t("lrc.red"),
+            Self::LyricsPlus => crate::i18n::t("LyricsPlus"),
+            Self::YouTube => crate::i18n::t("YouTube Music"),
+        }
+    }
+    pub fn next(self) -> Self {
+        Self::ALL[(Self::ALL.iter().position(|v| *v == self).unwrap_or(0) + 1) % Self::ALL.len()]
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Preferences {
+    pub source: Source,
+    pub words: bool,
+    pub translations: bool,
+    pub romanization: bool,
+    pub offset_ms: i32,
+    pub text_scale: f32,
+    pub track_offsets: std::collections::HashMap<String, i32>,
+}
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            source: Source::Auto,
+            words: true,
+            translations: true,
+            romanization: false,
+            offset_ms: 0,
+            text_scale: 1.,
+            track_offsets: Default::default(),
+        }
+    }
+}
+impl Preferences {
+    pub fn offset(&self, id: &str) -> f64 {
+        f64::from(
+            self.track_offsets
+                .get(id)
+                .copied()
+                .unwrap_or(self.offset_ms)
+                .clamp(-30_000, 30_000),
+        ) / 1000.
+    }
+}
 
 fn lrclib(
     http: &Client,
@@ -44,6 +124,7 @@ fn plain(text: &str) -> Vec<LyricLine> {
         .map(|text| LyricLine {
             seconds: None,
             text: text.trim().into(),
+            ..Default::default()
         })
         .collect()
 }
@@ -198,50 +279,182 @@ fn stamp(value: &str) -> Option<f64> {
     };
     (seconds.is_finite() && seconds >= 0.).then_some(seconds)
 }
-fn ttml(bytes: &[u8]) -> Result<Vec<LyricLine>> {
-    let text = std::str::from_utf8(bytes)?;
+pub fn parse_document(bytes: &[u8], ttml_document: bool) -> Result<Vec<LyricLine>> {
+    if !ttml_document {
+        return Ok(parse_lrc(std::str::from_utf8(bytes)?));
+    }
     let document = roxmltree::Document::parse_with_options(
-        text,
+        std::str::from_utf8(bytes)?,
         roxmltree::ParsingOptions {
             nodes_limit: 40_000,
             ..Default::default()
         },
     )?;
-    let mut lines: Vec<_> = document
-        .descendants()
-        .filter(|n| n.has_tag_name("p"))
-        .filter_map(|node| {
-            let seconds = node.attribute("begin").and_then(stamp).or_else(|| {
-                node.descendants()
-                    .find_map(|n| n.attribute("begin").and_then(stamp))
-            })?;
-            let text: String = node
-                .descendants()
-                .filter(|n| n.is_text())
-                .filter(|n| {
-                    !n.ancestors().any(|parent| {
-                        parent.attributes().any(|a| {
-                            a.name() == "role" && matches!(a.value(), "x-translation" | "x-roman")
-                        })
-                    })
-                })
-                .filter_map(|n| n.text())
-                .collect();
-            let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-            (!text.is_empty()).then_some(LyricLine {
-                seconds: Some(seconds),
-                text,
+    let role = |node: roxmltree::Node<'_, '_>| {
+        node.attributes()
+            .find(|a| a.name() == "role")
+            .map(|a| a.value().to_owned())
+            .unwrap_or_default()
+    };
+    let text_of = |node: roxmltree::Node<'_, '_>| {
+        node.descendants()
+            .filter(|n| n.is_text())
+            .filter_map(|n| n.text())
+            .collect::<String>()
+    };
+    let mut auxiliary =
+        std::collections::HashMap::<String, (Option<String>, Option<String>)>::new();
+    for node in document.descendants().filter(|n| n.has_tag_name("p")) {
+        let kind = role(node);
+        if (kind == "x-translation" || kind == "x-roman")
+            && let Some(target) = node
+                .attributes()
+                .find(|a| a.name() == "for")
+                .map(|a| a.value().trim_start_matches('#').to_owned())
+        {
+            let entry = auxiliary.entry(target).or_default();
+            if kind == "x-translation" {
+                entry.0 = Some(text_of(node));
+            } else {
+                entry.1 = Some(text_of(node));
+            }
+        }
+    }
+    let mut lines = Vec::new();
+    for node in document.descendants().filter(|n| n.has_tag_name("p")) {
+        if matches!(role(node).as_str(), "x-translation" | "x-roman") {
+            continue;
+        }
+        let seconds = node.attribute("begin").and_then(stamp).or_else(|| {
+            node.descendants()
+                .find_map(|n| n.attribute("begin").and_then(stamp))
+        });
+        let text = node
+            .descendants()
+            .filter(|n| n.is_text())
+            .filter(|n| {
+                !n.ancestors()
+                    .any(|p| matches!(role(p).as_str(), "x-translation" | "x-roman"))
             })
-        })
-        .take(2000)
-        .collect();
+            .filter_map(|n| n.text())
+            .collect::<String>();
+        let mut words = Vec::<LyricWord>::new();
+        let mut last_span = None;
+        let mut prefix = String::new();
+        for text_node in node.descendants().filter(|n| n.is_text()).filter(|n| {
+            !n.ancestors()
+                .any(|p| matches!(role(p).as_str(), "x-translation" | "x-roman"))
+        }) {
+            let piece = text_node
+                .text()
+                .unwrap_or_default()
+                .replace(['\n', '\r', '\t'], " ");
+            if let Some(span) = text_node
+                .ancestors()
+                .find(|p| p.has_tag_name("span") && p.attribute("begin").and_then(stamp).is_some())
+            {
+                if last_span == Some(span.id())
+                    && let Some(word) = words.last_mut()
+                {
+                    word.text.push_str(&piece);
+                    continue;
+                }
+                let start = span.attribute("begin").and_then(stamp).unwrap_or_default();
+                let end = span
+                    .attribute("end")
+                    .and_then(stamp)
+                    .filter(|end| *end >= start);
+                words.push(LyricWord {
+                    start,
+                    end,
+                    text: format!("{prefix}{piece}"),
+                });
+                prefix.clear();
+                last_span = Some(span.id());
+                if words.len() >= 1000 {
+                    break;
+                }
+            } else if let Some(word) = words.last_mut() {
+                word.text.push_str(&piece);
+            } else {
+                prefix.push_str(&piece);
+            }
+        }
+        words.retain(|word| !word.text.trim().is_empty());
+        words.sort_by(|a, b| a.start.total_cmp(&b.start));
+        let id = node
+            .attributes()
+            .find(|a| a.name() == "id")
+            .map(|a| a.value())
+            .unwrap_or_default();
+        let (mut translation, mut romanization) = auxiliary.remove(id).unwrap_or_default();
+        for child in node.descendants().filter(|n| n.has_tag_name("span")) {
+            match role(child).as_str() {
+                "x-translation" => translation = Some(text_of(child)),
+                "x-roman" => romanization = Some(text_of(child)),
+                _ => {}
+            }
+        }
+        if !text.trim().is_empty() {
+            lines.push(LyricLine {
+                seconds,
+                text: text.trim().into(),
+                words,
+                translation,
+                romanization,
+            });
+        }
+        if lines.len() >= 2000 {
+            break;
+        }
+    }
     lines.sort_by(|a, b| {
         a.seconds
-            .partial_cmp(&b.seconds)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .unwrap_or_default()
+            .total_cmp(&b.seconds.unwrap_or_default())
     });
     Ok(lines)
 }
+fn ttml(bytes: &[u8]) -> Result<Vec<LyricLine>> {
+    parse_document(bytes, true)
+}
+
+pub fn enhanced_words(text: &str) -> (String, Vec<LyricWord>) {
+    let mut plain = String::new();
+    let mut words = Vec::<LyricWord>::new();
+    let mut rest = text;
+    while let Some((prefix, after)) = rest.split_once('<') {
+        if let Some((timestamp, tail)) = after.split_once('>')
+            && let Some(start) = stamp(timestamp)
+        {
+            if let Some(previous) = words.last_mut() {
+                previous.text.push_str(prefix);
+                previous.end = Some(start);
+            } else {
+                plain.push_str(prefix);
+            }
+            words.push(LyricWord {
+                start,
+                end: None,
+                text: String::new(),
+            });
+            rest = tail;
+        } else {
+            break;
+        }
+    }
+    if let Some(last) = words.last_mut() {
+        last.text.push_str(rest);
+    } else {
+        return (text.into(), vec![]);
+    }
+    for word in &words {
+        plain.push_str(&word.text);
+    }
+    words.retain(|w| !w.text.trim().is_empty());
+    (plain.trim().into(), words)
+}
+
 fn client() -> Result<&'static Client> {
     if HTTP.get().is_none() {
         let value = Client::builder()
@@ -318,6 +531,15 @@ fn fetch_hosted(
     })?;
     let value: Value = serde_json::from_slice(&bytes)?;
     let mut lines: Vec<LyricLine> = if matches!(provider, Provider::LyricsPlus) {
+        let metadata = &value["metadata"];
+        if let (Some(title), Some(artist)) =
+            (metadata["title"].as_str(), metadata["artist"].as_str())
+        {
+            let duration = metadata["totalDuration"].as_str().and_then(stamp);
+            if !matches_recording(title, artist, duration, track) {
+                bail!("No matching lyric recording");
+            }
+        }
         value["lyrics"]
             .as_array()
             .into_iter()
@@ -328,6 +550,30 @@ fn fetch_hosted(
                 (seconds.is_finite() && seconds >= 0. && !text.is_empty()).then(|| LyricLine {
                     seconds: Some(seconds),
                     text: text.into(),
+                    words: line["syllabus"]
+                        .as_array()
+                        .or_else(|| line["syllables"].as_array())
+                        .or_else(|| line["words"].as_array())
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|w| {
+                            let start = w["time"].as_f64().or_else(|| w["start"].as_f64())? / 1000.;
+                            let end = w["end"]
+                                .as_f64()
+                                .map(|v| v / 1000.)
+                                .or_else(|| w["duration"].as_f64().map(|v| start + v / 1000.))
+                                .filter(|end| end.is_finite() && *end >= start);
+                            Some(LyricWord {
+                                start,
+                                end,
+                                text: w["text"].as_str()?.into(),
+                            })
+                        })
+                        .filter(|w| w.start.is_finite() && w.start >= 0.)
+                        .take(1000)
+                        .collect(),
+                    translation: line["translation"].as_str().map(str::to_owned),
+                    romanization: line["romanization"].as_str().map(str::to_owned),
                 })
             })
             .take(2000)
@@ -381,6 +627,22 @@ fn fetch_hosted(
     })
 }
 pub fn fetch(track: &Track) -> Result<Lyrics> {
+    fetch_selected(track, Source::Auto)
+}
+pub fn fetch_selected(track: &Track, source: Source) -> Result<Lyrics> {
+    let override_path = crate::library::data_dir()
+        .join("lyric-overrides")
+        .join(format!("{}.json", crate::cache::key(&track.id)));
+    if let Ok(file) = std::fs::File::open(override_path) {
+        return crate::resource::json(file, crate::resource::LYRIC_BYTES);
+    }
+    match source {
+        Source::BiniLyrics => return fetch_provider(track, Provider::BiniLyrics),
+        Source::LrcRed => return fetch_provider(track, Provider::LrcRed),
+        Source::LyricsPlus => return fetch_provider(track, Provider::LyricsPlus),
+        Source::YouTube => bail!("YouTube lyrics are loaded by the account service"),
+        _ => {}
+    }
     if track.kind == crate::ItemKind::Local {
         let path = std::path::Path::new(&track.id).with_extension("lrc");
         if let Ok(file) = std::fs::File::open(path)
@@ -412,16 +674,30 @@ pub fn fetch(track: &Track) -> Result<Lyrics> {
     if (1..=3600).contains(&track.duration) {
         query.push(("duration".into(), track.duration.to_string()));
     }
-    if let Ok(value) = lrclib(http, "get", &query, deadline)
-        && let Some(lyrics) = record(&value)
+    let mut fallback = lrclib(http, "get", &query, deadline)
+        .ok()
+        .and_then(|value| record(&value));
+    if source == Source::Lrclib
+        && let Some(lyrics) = fallback.take()
     {
         return Ok(lyrics);
     }
     let mut tried = std::collections::HashSet::new();
-    for provider in [Provider::BiniLyrics, Provider::LrcRed, Provider::LyricsPlus] {
+    for provider in [Provider::LyricsPlus, Provider::BiniLyrics, Provider::LrcRed]
+        .into_iter()
+        .filter(|_| source == Source::Auto)
+    {
         if let Ok(lyrics) = fetch_hosted(http, track, provider, &mut tried, deadline) {
-            return Ok(lyrics);
+            if lyrics.lines.iter().any(|line| !line.words.is_empty()) {
+                return Ok(lyrics);
+            }
+            if fallback.is_none() {
+                fallback = Some(lyrics);
+            }
         }
+    }
+    if let Some(lyrics) = fallback {
+        return Ok(lyrics);
     }
     // Search tolerates incomplete album metadata; reject covers and mismatched timings.
     if let Ok(value) = lrclib(http, "search", &query[..2], deadline)
@@ -430,6 +706,9 @@ pub fn fetch(track: &Track) -> Result<Lyrics> {
         && let Some(lyrics) = record(candidate)
     {
         return Ok(lyrics);
+    }
+    if source != Source::Auto {
+        bail!("No lyrics found with the selected provider");
     }
     let mut url = reqwest::Url::parse("https://api.lyrics.ovh/v1/")?;
     url.path_segments_mut()

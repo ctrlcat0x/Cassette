@@ -76,7 +76,7 @@ pub struct Backend {
     pub events_sender: SyncSender<Event>,
     saves: JobSender<SaveJob>,
     pub caches: JobSender<(Track, bool, String, String)>,
-    pub lyrics: JobSender<(String, Track)>,
+    pub lyrics: JobSender<(String, Track, raag::lyrics::Source, bool)>,
     pub radio: JobSender<(u64, Track)>,
     pub suggestions: JobSender<(u64, String)>,
     pub collections: SyncSender<CollectionLoad>,
@@ -318,43 +318,67 @@ impl Backend {
                 }
             }
         });
-        let (lyrics, lyric_jobs) = jobs::channel::<(String, Track)>(1);
+        let (lyrics, lyric_jobs) = jobs::channel::<(String, Track, raag::lyrics::Source, bool)>(1);
         let lyric_events = events.clone();
         thread::spawn(move || {
             let mut youtube = None;
-            while let Ok((mut id, mut track)) = lyric_jobs.recv() {
+            while let Ok((mut id, mut track, mut source, mut force)) = lyric_jobs.recv() {
                 while let Ok(newer) = lyric_jobs.try_recv() {
-                    (id, track) = newer;
+                    (id, track, source, force) = newer;
                 }
-                let path = data_dir()
-                    .join("lyrics")
-                    .join(format!("{}.json", raag::cache::key(&id)));
+                let path = data_dir().join("lyrics").join(format!(
+                    "{}.json",
+                    raag::cache::key(&format!("{}:{source:?}:v2", track.id))
+                ));
                 let snapshot = lyrics_auth.snapshot();
                 let saved: Option<raag::lyrics::Lyrics> = (track.kind != ItemKind::Local)
-                    .then(|| std::fs::File::open(&path).ok())
+                    .then(|| {
+                        std::fs::File::open(&path).ok().or_else(|| {
+                            (source == raag::lyrics::Source::Auto)
+                                .then(|| {
+                                    std::fs::File::open(
+                                        data_dir()
+                                            .join("lyrics")
+                                            .join(format!("{}.json", raag::cache::key(&track.id))),
+                                    )
+                                    .ok()
+                                })
+                                .flatten()
+                        })
+                    })
                     .flatten()
                     .and_then(|file| raag::resource::json(file, raag::resource::LYRIC_BYTES).ok())
                     .filter(|lyrics: &raag::lyrics::Lyrics| {
                         !lyrics.instrumental || raag::cache::offline_only()
                     });
-                let fresh = saved.is_some()
+                let has_override = data_dir()
+                    .join("lyric-overrides")
+                    .join(format!("{}.json", raag::cache::key(&track.id)))
+                    .is_file();
+                let fresh = !force
+                    && !has_override
+                    && saved.is_some()
                     && (raag::cache::offline_only()
                         || raag::cache::metadata_fresh(&path, Duration::from_secs(12 * 3600)));
                 if !fresh && let Some(lyrics) = &saved {
                     let _ = lyric_events.send(Event::Lyrics(id.clone(), Ok(lyrics.clone())));
                 }
                 let result = saved.clone().filter(|_| fresh).map(Ok).unwrap_or_else(|| {
-                    if raag::cache::offline_only() && track.kind != ItemKind::Local {
+                    if raag::cache::offline_only() && !has_override && track.kind != ItemKind::Local
+                    {
                         return Err("Lyrics are not cached for offline listening.".into());
                     }
-                    let fetched = raag::lyrics::fetch(&track);
+                    let fetched = raag::lyrics::fetch_selected(&track, source);
                     // A provider's instrumental flag is not proof of missing vocals.
                     // Let YouTube supply lyrics before accepting a negative result.
-                    let result = if fetched
+                    let result = if !matches!(
+                        source,
+                        raag::lyrics::Source::Auto | raag::lyrics::Source::YouTube
+                    ) || (fetched
                         .as_ref()
                         .is_ok_and(|lyrics| !lyrics.lines.is_empty())
                         || track.kind != ItemKind::Song
-                        || !lyrics_auth.current(snapshot.generation)
+                        || !lyrics_auth.current(snapshot.generation))
                     {
                         fetched
                     } else {

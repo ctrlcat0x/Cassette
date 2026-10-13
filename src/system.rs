@@ -18,29 +18,20 @@ pub enum Command {
 pub struct System {
     _icon: TrayIcon,
     events: Receiver<Command>,
+    labels: [MenuItem; 3],
 }
 impl System {
     pub fn new() -> Result<Self> {
         let menu = Menu::new();
-        menu.append(&MenuItem::with_id(
-            "cassette-show",
-            "Open Cassette",
-            true,
-            None,
-        ))?;
-        menu.append(&MenuItem::with_id(
-            "cassette-play",
-            "Play / pause",
-            true,
-            None,
-        ))?;
+        let labels = [
+            MenuItem::with_id("cassette-show", raag::i18n::t("Open Cassette"), true, None),
+            MenuItem::with_id("cassette-play", raag::i18n::t("Play / pause"), true, None),
+            MenuItem::with_id("cassette-quit", raag::i18n::t("Quit Cassette"), true, None),
+        ];
+        menu.append(&labels[0])?;
+        menu.append(&labels[1])?;
         menu.append(&PredefinedMenuItem::separator())?;
-        menu.append(&MenuItem::with_id(
-            "cassette-quit",
-            "Quit Cassette",
-            true,
-            None,
-        ))?;
+        menu.append(&labels[2])?;
         let image =
             image::load_from_memory(include_bytes!("../assets/cassette-32.png"))?.to_rgba8();
         let (width, height) = image.dimensions();
@@ -78,7 +69,17 @@ impl System {
         Ok(Self {
             _icon: icon,
             events,
+            labels,
         })
+    }
+    pub fn refresh_language(&self) {
+        for (item, label) in
+            self.labels
+                .iter()
+                .zip(["Open Cassette", "Play / pause", "Quit Cassette"])
+        {
+            item.set_text(raag::i18n::t(label));
+        }
     }
     pub fn poll(&self) -> Option<Command> {
         self.events.try_recv().ok()

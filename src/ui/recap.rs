@@ -35,13 +35,13 @@ impl Raag {
                     .child(
                         div()
                             .text_lg()
-                            .font_family("Manrope")
+                            .font_family(raag::i18n::font())
                             .font_weight(FontWeight::BOLD)
                             .child("Cassette / listening story"),
                     )
                     .child(
                         div().flex().flex_wrap().gap_2().children(
-                            ["All time", "30 days", "365 days"]
+                            [t("All time"), t("30 days"), t("365 days")]
                                 .into_iter()
                                 .enumerate()
                                 .map(|(index, label)| {
@@ -66,9 +66,9 @@ impl Raag {
                     .font_family("Segoe UI Black")
                     .text_color(yellow)
                     .child(if width < 520. {
-                        "YOUR\nCHARTS"
+                        t("YOUR\nCHARTS")
                     } else {
-                        "YOUR CHARTS"
+                        t("YOUR CHARTS")
                     }),
             );
         let mut details = div()
@@ -80,11 +80,11 @@ impl Raag {
             .child(
                 div()
                     .text_2xl()
-                    .font_family("Manrope")
+                    .font_family(raag::i18n::font())
                     .line_height(relative(1.15))
                     .font_weight(FontWeight::BOLD)
                     .text_color(yellow)
-                    .child("Your music, on repeat."),
+                    .child(t("Your music, on repeat.")),
             )
             .child(
                 div()
@@ -93,11 +93,11 @@ impl Raag {
                     .gap_7()
                     .child(self.recap_metric(
                         &(stats.seconds / 60.).floor().to_string(),
-                        "Minutes listened",
+                        t("Minutes listened"),
                         yellow,
                     ))
-                    .child(self.recap_metric(&top.len().to_string(), "Songs", yellow))
-                    .child(self.recap_metric(&artists.len().to_string(), "Artists", yellow)),
+                    .child(self.recap_metric(&top.len().to_string(), t("Songs"), yellow))
+                    .child(self.recap_metric(&artists.len().to_string(), t("Artists"), yellow)),
             );
         if let Some(favourite) = top.first() {
             let mut rankings = div()
@@ -112,14 +112,14 @@ impl Raag {
                 .map(|entry| (entry.track.title.clone(), entry.seconds))
                 .collect();
             for (title, entries, artist) in [
-                ("Top artists", &artists, true),
-                ("Top songs", &songs, false),
-                ("Top albums", &albums, false),
+                (t("Top artists"), &artists, true),
+                (t("Top songs"), &songs, false),
+                (t("Top albums"), &albums, false),
             ] {
                 let mut column = div().flex().flex_col().flex_1().min_w_0().gap_3().child(
                     div()
                         .text_lg()
-                        .font_family("Manrope")
+                        .font_family(raag::i18n::font())
                         .font_weight(FontWeight::BOLD)
                         .child(title),
                 );
@@ -141,8 +141,11 @@ impl Raag {
                     );
                 }
                 if entries.is_empty() {
-                    column =
-                        column.child(div().text_sm().child("Album details appear as you listen."));
+                    column = column.child(
+                        div()
+                            .text_sm()
+                            .child(t("Album details appear as you listen.")),
+                    );
                 }
                 rankings = rankings.child(column);
             }
@@ -162,12 +165,12 @@ impl Raag {
                     div()
                         .text_xs()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child("Your most played"),
+                        .child(t("Your most played")),
                 )
                 .child(
                     div()
                         .text_lg()
-                        .font_family("Manrope")
+                        .font_family(raag::i18n::font())
                         .font_weight(FontWeight::BOLD)
                         .line_height(relative(1.2))
                         .text_color(yellow)
@@ -176,7 +179,7 @@ impl Raag {
                 .child(div().text_sm().child(self.artist_link(&track, cx)))
                 .child(
                     Button::new("chart-play-favourite")
-                        .label("Play again")
+                        .label(t("Play again"))
                         .icon(icon("play"))
                         .bg(ink)
                         .text_color(yellow)
@@ -199,8 +202,10 @@ impl Raag {
                 div()
                     .py_8()
                     .text_lg()
-                    .font_family("Manrope")
-                    .child("Play a song to start your charts. Your story grows as you listen."),
+                    .font_family(raag::i18n::font())
+                    .child(t(t(
+                        "Play a song to start your charts. Your story grows as you listen.",
+                    ))),
             );
         }
         self.scroll
@@ -222,7 +227,7 @@ impl Raag {
             .child(
                 div()
                     .text_3xl()
-                    .font_family("Manrope")
+                    .font_family(raag::i18n::font())
                     .font_weight(FontWeight::EXTRA_BOLD)
                     .child(value.to_owned()),
             )

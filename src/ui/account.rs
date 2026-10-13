@@ -64,7 +64,8 @@ impl Raag {
     pub(super) fn account_read(&mut self, key: Key, more: bool, cx: &mut Context<Self>) {
         if !self.account.loading(&key) && !self.account.read(self.auth.snapshot(), key, more) {
             self.notice = Some(
-                "Account requests are busy. Wait a moment, then sync from the profile menu.".into(),
+                t("Account requests are busy. Wait a moment, then sync from the profile menu.")
+                    .into(),
             );
         }
         self.sync_account_view();
@@ -78,7 +79,7 @@ impl Raag {
             None
         } else {
             Some(
-                "Could not queue the edit. Sign in or wait for the current changes to finish."
+                t("Could not queue the edit. Sign in or wait for the current changes to finish.")
                     .into(),
             )
         };
@@ -216,7 +217,7 @@ impl Raag {
             }
             Update::Failed(message) => {
                 self.pending_edits.clear();
-                self.notice = Some(format!("YouTube Music: {message}"));
+                self.notice = Some(tr!("YouTube Music: {message}"));
             }
         }
         if relevant {
@@ -239,14 +240,14 @@ impl Raag {
         Button::new("account-playlist-menu")
             .ghost()
             .icon(icon("more"))
-            .tooltip("Playlist actions")
-            .accessibility_label("Playlist actions")
+            .tooltip(t("Playlist actions"))
+            .accessibility_label(t("Playlist actions"))
             .dropdown_menu(move |mut menu, window, cx| {
                 let add_owner = owner.clone();
                 let add_id = playlist.clone();
                 menu = menu
                     .item(
-                        PopupMenuItem::new("Add playing song")
+                        PopupMenuItem::new(t("Add playing song"))
                             .icon(icon("plus"))
                             .disabled(no_song)
                             .on_click(move |_, _, cx| {
@@ -264,7 +265,7 @@ impl Raag {
                             }),
                     )
                     .separator();
-                for (label, description) in [("Rename playlist…", false), ("Edit description…", true)] {
+                for (label, description) in [(t("Rename playlist…"), false), (t("Edit description…"), true)] {
                     let owner = owner.clone();
                     menu = menu.item(
                         PopupMenuItem::new(label)
@@ -294,11 +295,11 @@ impl Raag {
                 let privacy_owner = owner.clone();
                 let privacy_id = playlist.clone();
                 let privacy = privacy.clone();
-                menu = menu.submenu("Visibility", window, cx, move |mut menu, _, _| {
+                menu = menu.submenu(t("Visibility"), window, cx, move |mut menu, _, _| {
                     for (label, value) in [
-                        ("Private", "PRIVATE"),
-                        ("Unlisted", "UNLISTED"),
-                        ("Public", "PUBLIC"),
+                        (t("Private"), "PRIVATE"),
+                        (t("Unlisted"), "UNLISTED"),
+                        (t("Public"), "PUBLIC"),
                     ] {
                         let owner = privacy_owner.clone();
                         let id = privacy_id.clone();
@@ -323,13 +324,13 @@ impl Raag {
                 let delete_owner = owner.clone();
                 let delete_id = playlist.clone();
                 menu.separator().item(
-                    PopupMenuItem::new("Delete playlist…").on_click(move |_, window, cx| {
+                    PopupMenuItem::new(t("Delete playlist…")).on_click(move |_, window, cx| {
                         let _ = delete_owner.update(cx, |_this, cx| {
                             let prompt = window.prompt(
                                 PromptLevel::Warning,
-                                "Delete this playlist?",
-                                Some("This permanently deletes the playlist from your YouTube account."),
-                                &["Cancel", "Delete playlist"],
+                                t("Delete this playlist?"),
+                                Some(t("This permanently deletes the playlist from your YouTube account.")),
+                                &[t("Cancel"), t("Delete playlist")],
                                 cx,
                             );
                             let id = delete_id.clone();

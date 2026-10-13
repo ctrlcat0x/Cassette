@@ -70,45 +70,45 @@ impl Raag {
             }))
             .child(div().flex().items_center().justify_between().gap_3()
                 .child(div().flex().flex_col().gap_1()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Equalizer"))
-                    .child(div().text_xs().text_color(cx.theme().muted_foreground).child("Shape your sound · −12 to +12 dB")))
-                .child(Button::new("eq-reset").ghost().small().label("Reset")
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child(t("Equalizer")))
+                    .child(div().text_xs().text_color(cx.theme().muted_foreground).child(t("Shape your sound · −12 to +12 dB"))))
+                .child(Button::new("eq-reset").ghost().small().label(t("Reset"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.library.audio.equalizer = [0.; 5];
                         this.eq_drag = None;
                         this.apply_audio(cx);
                     }))))
             .child(div().flex().gap_2()
-                .child(div().w(px(34.)).flex_shrink_0().h(px(HEIGHT)).py(px(INSET))
+                .child(div().w(ui_px(34.)).flex_shrink_0().h(px(HEIGHT)).py(px(INSET))
                     .flex().flex_col().justify_between().text_xs().text_color(cx.theme().muted_foreground)
                     .children(["+12", "+6", "0 dB", "−6", "−12"]))
                 .child(div().flex_1().min_w_0().cursor_pointer().child(canvas(|_, _, _| (), move |bounds, _, window, _| {
                     let plot = Bounds::new(bounds.origin + point(px(INSET), px(INSET)),
-                        size((bounds.size.width - px(INSET * 2.)).max(px(1.)), px(HEIGHT - INSET * 2.)));
+                        size((bounds.size.width - px(INSET * 2.)).max(ui_px(1.)), px(HEIGHT - INSET * 2.)));
                     let points: [Point<Pixels>; 5] = std::array::from_fn(|i| point(
                         plot.origin.x + plot.size.width * (0.1 + i as f32 / 5.),
                         plot.origin.y + plot.size.height * ((12. - gains[i]) as f32 / 24.)));
                     for row in 0..5 {
                         let y = plot.origin.y + plot.size.height * (row as f32 / 4.);
-                        window.paint_quad(fill(Bounds::new(point(plot.origin.x, y), size(plot.size.width, px(1.))), grid.opacity(if row == 2 { 0.95 } else { 0.45 })));
+                        window.paint_quad(fill(Bounds::new(point(plot.origin.x, y), size(plot.size.width, ui_px(1.))), grid.opacity(if row == 2 { 0.95 } else { 0.45 })));
                     }
                     for p in points {
-                        window.paint_quad(fill(Bounds::new(point(p.x, plot.origin.y), size(px(1.), plot.size.height)), grid.opacity(0.4)));
+                        window.paint_quad(fill(Bounds::new(point(p.x, plot.origin.y), size(ui_px(1.), plot.size.height)), grid.opacity(0.4)));
                     }
                     let mut area = PathBuilder::fill();
                     area.move_to(points[0]); curve(&mut area, &points);
                     area.line_to(point(points[4].x, plot.bottom()));
                     area.line_to(point(points[0].x, plot.bottom())); area.close();
                     if let Ok(path) = area.build() { window.paint_path(path, accent.opacity(0.07)); }
-                    let mut line = PathBuilder::stroke(px(2.5));
+                    let mut line = PathBuilder::stroke(ui_px(2.5));
                     line.move_to(points[0]); curve(&mut line, &points);
                     if let Ok(path) = line.build() { window.paint_path(path, accent); }
                     for (index, p) in points.iter().enumerate() {
                         if index == active && focused {
-                            window.paint_quad(quad(Bounds::new(*p - point(px(12.), px(12.)), size(px(24.), px(24.))), px(12.), accent.opacity(0.15), px(1.), accent.opacity(0.5), BorderStyle::default()));
+                            window.paint_quad(quad(Bounds::new(*p - point(ui_px(12.), ui_px(12.)), size(ui_px(24.), ui_px(24.))), ui_px(12.), accent.opacity(0.15), ui_px(1.), accent.opacity(0.5), BorderStyle::default()));
                         }
-                        window.paint_quad(quad(Bounds::new(*p - point(px(6.), px(6.)), size(px(12.), px(12.))), px(6.), background, px(2.), accent, BorderStyle::default()));
-                        window.paint_quad(quad(Bounds::new(*p - point(px(2.), px(2.)), size(px(4.), px(4.))), px(2.), foreground, px(0.), accent, BorderStyle::default()));
+                        window.paint_quad(quad(Bounds::new(*p - point(ui_px(6.), ui_px(6.)), size(ui_px(12.), ui_px(12.))), ui_px(6.), background, ui_px(2.), accent, BorderStyle::default()));
+                        window.paint_quad(quad(Bounds::new(*p - point(ui_px(2.), ui_px(2.)), size(ui_px(4.), ui_px(4.))), ui_px(2.), foreground, ui_px(0.), accent, BorderStyle::default()));
                     }
                     let clip = window.content_mask().bounds;
                     let down = owner.clone();
@@ -166,8 +166,8 @@ impl Raag {
                     })))
                     .child(div().text_sm().font_weight(FontWeight::MEDIUM).text_color(accent).child(format!("{:+.1} dB", gains[band])))
             })))
-            .child(div().pl(px(42.)).text_xs().text_color(cx.theme().muted_foreground)
-                .child("Drag or click to adjust · Arrow keys for fine tuning · Double-click a point to reset"))
+            .child(div().pl(ui_px(42.)).text_xs().text_color(cx.theme().muted_foreground)
+                .child(t("Drag or click to adjust · Arrow keys for fine tuning · Double-click a point to reset")))
             .into_any_element()
     }
 }

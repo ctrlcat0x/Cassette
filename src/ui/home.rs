@@ -30,7 +30,7 @@ impl Raag {
                 div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child("Your recently played songs will appear here."),
+                    .child(t("Your recently played songs will appear here.")),
             );
         }
         let mut page = self
@@ -44,8 +44,8 @@ impl Raag {
             .pb_8()
             .gap_7()
             .child(self.page_heading(
-                "Your day, in music.",
-                "A familiar favourite. Something unexpected.",
+                t("Your day, in music."),
+                t("A familiar favourite. Something unexpected."),
                 cx,
             ))
             .child(
@@ -60,9 +60,15 @@ impl Raag {
             );
         if self.page.sections.is_empty() {
             page = page
-                .child(self.home_shelf("On repeat", self.editorial.as_ref(), columns, window, cx))
                 .child(self.home_shelf(
-                    "A little more energy",
+                    t("On repeat"),
+                    self.editorial.as_ref(),
+                    columns,
+                    window,
+                    cx,
+                ))
+                .child(self.home_shelf(
+                    t("A little more energy"),
                     &self.editorial[5..],
                     columns,
                     window,
@@ -107,11 +113,11 @@ impl Raag {
                     .text_color(rgb(0x123c43))
                     .child(
                         div()
-                            .font_family("Manrope")
+                            .font_family(raag::i18n::font())
                             .font_weight(FontWeight::BOLD)
                             .text_size(px((width * 0.048).clamp(12., 23.)))
                             .line_height(relative(1.1))
-                            .child("Find your frequency."),
+                            .child(t("Find your frequency.")),
                     ),
             )
             .child(
@@ -127,7 +133,7 @@ impl Raag {
                         div()
                             .text_size(px((width * 0.033).clamp(10., 14.)))
                             .line_height(relative(1.1))
-                            .child("A mix for the moment"),
+                            .child(t("A mix for the moment")),
                     ),
             )
             .child(
@@ -146,7 +152,7 @@ impl Raag {
                             .bg(rgb(0x0c3941))
                             .text_color(rgb(0xfff7e6))
                             .icon(icon("play"))
-                            .label("Play mix")
+                            .label(t("Play mix"))
                             .on_click(cx.listener(|this, _, _, cx| this.start_mix(cx))),
                     ),
             )
@@ -187,8 +193,8 @@ impl Raag {
             .min(tracks.len().saturating_sub(1));
         let mut arrows = div().flex().items_center().gap_2();
         for (direction, glyph, label, disabled) in [
-            (-1isize, "nav-arrow-left", "Previous items", start == 0),
-            (1, "nav-arrow-right", "Next items", start >= end),
+            (-1isize, "nav-arrow-left", t("Previous items"), start == 0),
+            (1, "nav-arrow-right", t("Next items"), start >= end),
         ] {
             let key = key.clone();
             arrows = arrows.child(
@@ -199,7 +205,7 @@ impl Raag {
                     .icon(icon(glyph))
                     .disabled(disabled)
                     .tooltip(label)
-                    .accessibility_label(format!("{label} in {title}"))
+                    .accessibility_label(tr!("{label} in {title}"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         let next = start
                             .saturating_add_signed(
@@ -256,7 +262,7 @@ impl Raag {
                     .child(
                         div()
                             .text_xl()
-                            .font_family("Manrope")
+                            .font_family(raag::i18n::font())
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(title.to_owned()),
                     )
@@ -287,7 +293,7 @@ impl Raag {
                     .rounded_lg()
                     .overflow_hidden()
                     .hover(|button| button.opacity(0.86))
-                    .accessibility_label(format!("Open {}", track.title))
+                    .accessibility_label(tr!("Open {}", track.title))
                     .child(self.cover(track, rems(extent / f32::from(window.rem_size())), cx))
                     .on_click(
                         cx.listener(move |this, _, _, cx| this.open_track(owned.clone(), cx)),

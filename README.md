@@ -33,7 +33,7 @@ GitHub does not mark prereleases as **Latest**, so the repository sidebar may sh
 
 ### Playback setup
 
-The current downloads contain the app; playback tools are installed separately:
+The published v0.5 beta downloads require separate playback tools. New builds from this branch embed these tools directly into each EXE, DMG and DEB:
 
 - [mpv](https://mpv.io/installation/) handles audio playback.
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp#installation) resolves YouTube audio.
@@ -70,7 +70,16 @@ cd Cassette
 cargo run --release --locked
 ```
 
-Install the playback tools described above before playing music. The Cargo package and some internal modules retain the original project name, `raag`; the application binary is `cassette`.
+For a self-contained build, install Python 3.12 plus mpv and patchelf on Linux, or Homebrew mpv on macOS. Windows needs 7-Zip. Then run:
+
+```sh
+python scripts/bundle-runtime.py
+cargo build --release --locked --features bundled-runtime --bin cassette
+```
+
+The bundled tools extract into Cassette's private data directory on first launch. `cassette --verify-runtime` checks the exact embedded executables. Custom tool paths in Settings still take priority.
+
+The Cargo package and some internal modules retain the original project name, `raag`; the application binary is `cassette`.
 
 ## Development
 

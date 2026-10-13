@@ -30,22 +30,22 @@ impl Raag {
             return div().into_any_element();
         };
         let title = match panel {
-            Panel::Playing => "Now playing",
-            Panel::Recent => "Recently played",
-            Panel::Queue => "Queue",
-            Panel::Lyrics => "Lyrics",
+            Panel::Playing => t("Now playing"),
+            Panel::Recent => t("Recently played"),
+            Panel::Queue => t("Queue"),
+            Panel::Lyrics => t("Lyrics"),
         };
         let mut tabs = div().flex().items_center().gap_2();
         for (id, name, glyph, mode) in [
             (
                 "panel-playing",
-                "Now playing",
+                t("Now playing"),
                 "now-playing",
                 Panel::Playing,
             ),
-            ("panel-recent", "Recently played", "clock", Panel::Recent),
-            ("panel-queue", "Queue", "list", Panel::Queue),
-            ("panel-lyrics", "Lyrics", "lyrics", Panel::Lyrics),
+            ("panel-recent", t("Recently played"), "clock", Panel::Recent),
+            ("panel-queue", t("Queue"), "list", Panel::Queue),
+            ("panel-lyrics", t("Lyrics"), "lyrics", Panel::Lyrics),
         ] {
             tabs = tabs.child(
                 Button::new(id)
@@ -76,7 +76,7 @@ impl Raag {
                     .child(
                         div()
                             .text_lg()
-                            .font_family("Manrope")
+                            .font_family(raag::i18n::font())
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(title),
                     )
@@ -84,8 +84,8 @@ impl Raag {
                         Button::new("close-panel")
                             .ghost()
                             .icon(icon("xmark"))
-                            .tooltip("Close panel")
-                            .accessibility_label("Close panel")
+                            .tooltip(t("Close panel"))
+                            .accessibility_label(t("Close panel"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.panel = None;
                                 this.content_revision += 1;
@@ -115,21 +115,21 @@ impl Raag {
                 .p_5()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
-                .child("Choose a song to get started.")
+                .child(t("Choose a song to get started."))
                 .into_any_element();
         };
         let quality = &self.stream_quality;
         let description = if self.buffering {
-            "Finding the best available audio…".into()
+            t("Finding the best available audio…").into()
         } else if self.failed {
-            "Playback could not start. Try again.".into()
+            t("Playback could not start. Try again.").into()
         } else if quality.bitrate > 0. {
             format!(
                 "{} · {:.0} kb/s{}{}",
                 quality.codec.to_uppercase(),
                 quality.bitrate,
                 if self.source_offline {
-                    " · Offline"
+                    t(" · Offline")
                 } else {
                     ""
                 },
@@ -140,9 +140,9 @@ impl Raag {
                 }
             )
         } else if self.source_offline {
-            "Playing from this computer".into()
+            t("Playing from this computer").into()
         } else {
-            "Best available audio".into()
+            t("Best available audio").into()
         };
         self.panel_scroll
             .bind(div().id("now-playing-scroll"))
@@ -189,14 +189,14 @@ impl Raag {
                     div()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(format!("Offline cache: {message}")),
+                        .child(tr!("Offline cache: {message}")),
                 )
             })
             .child(self.basic_controls("panel", cx))
             .child(
                 Button::new("panel-open-lyrics")
                     .ghost()
-                    .label("Open lyrics")
+                    .label(t("Open lyrics"))
                     .icon(icon("lyrics"))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_panel(Panel::Lyrics, cx))),
             )
@@ -215,9 +215,9 @@ impl Raag {
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
                 .child(if panel == Panel::Queue {
-                    "Your queue is empty. Play a song to begin."
+                    t("Your queue is empty. Play a song to begin.")
                 } else {
-                    "Your recently played songs will appear here."
+                    t("Your recently played songs will appear here.")
                 })
                 .into_any_element();
         }
@@ -288,8 +288,8 @@ impl Raag {
                 .small()
                 .icon(icon("xmark"))
                 .disabled(current)
-                .tooltip("Remove from queue")
-                .accessibility_label("Remove from queue")
+                .tooltip(t("Remove from queue"))
+                .accessibility_label(t("Remove from queue"))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.queue.remove_at(ix);
                     this.right_content.update(cx, |_, cx| cx.notify());
@@ -306,8 +306,8 @@ impl Raag {
                 .ghost()
                 .small()
                 .icon(icon("plus"))
-                .tooltip("Add to queue")
-                .accessibility_label("Add to queue")
+                .tooltip(t("Add to queue"))
+                .accessibility_label(t("Add to queue"))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.queue.enqueue(queued.clone(), false);
                     this.right_content.update(cx, |_, cx| cx.notify());
@@ -317,6 +317,23 @@ impl Raag {
         }
         let row = div()
             .group(group)
+            .id(("queue-drag-row", ix))
+            .when(panel == Panel::Queue, |row| {
+                row.on_drag(
+                    TrackDrag {
+                        track: track.clone(),
+                        screen: Screen::Queue,
+                        index: ix,
+                    },
+                    |drag, _, _, cx| cx.new(|_| DragPreview(drag.track.title.clone())),
+                )
+                .drag_over::<TrackDrag>(|style, _, _, cx| {
+                    style.border_t_2().border_color(cx.theme().primary)
+                })
+                .on_drop(cx.listener(move |this, drag: &TrackDrag, _, cx| {
+                    this.move_track_to(drag, ix, &Screen::Queue, cx)
+                }))
+            })
             .flex()
             .items_center()
             .h_full()
@@ -337,7 +354,7 @@ impl Raag {
                     .h_full()
                     .justify_start()
                     .overflow_hidden()
-                    .accessibility_label(format!("Play {}", track.title))
+                    .accessibility_label(tr!("Play {}", track.title))
                     .child(self.cover(track, rems(2.5), cx))
                     .child(
                         div()
@@ -383,8 +400,15 @@ impl Raag {
         let active = self
             .lyrics
             .iter()
-            .rposition(|line| line.seconds.is_some_and(|time| time <= self.position));
-        let changed = active != self.lyrics_active;
+            .rposition(|line| line.seconds.is_some_and(|time| time <= self.lyric_time()));
+        let word = active.and_then(|i| self.lyrics.get(i)).and_then(|line| {
+            line.words
+                .iter()
+                .rposition(|w| w.start <= self.lyric_time())
+        });
+        let line_changed = active != self.lyrics_active;
+        let changed = line_changed || word != self.lyrics_word;
+        self.lyrics_word = word;
         self.lyrics_active = active;
         let scroll = if self.immersive {
             &self.immersive_scroll
@@ -395,14 +419,15 @@ impl Raag {
         // A newly mounted list has no layout on the first playback tick. Retry
         // after layout, including when switching between sidebar and fullscreen.
         if self.lyrics_follow
-            && (changed || self.lyrics_geometry != Some(geometry))
+            && (line_changed || self.lyrics_geometry != Some(geometry))
             && geometry.0 > 0.
             && geometry.1 > 0.
             && let Some(index) = active
         {
             self.lyrics_geometry = Some(geometry);
-            let target = (index as f32 + 2.) * f32::from(rems(7.).to_pixels(window.rem_size()))
-                + f32::from(rems(3.5).to_pixels(window.rem_size()))
+            let target = (index as f32 + 2.)
+                * f32::from(self.lyric_height().to_pixels(window.rem_size()))
+                + f32::from((self.lyric_height() / 2.).to_pixels(window.rem_size()))
                 - geometry.0 / 2.;
             let view = if self.immersive {
                 self.chrome[ChromePart::ImmersiveLyrics as usize].entity_id()
@@ -427,7 +452,7 @@ impl Raag {
             return div()
                 .p_5()
                 .text_sm()
-                .child("Play a song to see its lyrics.")
+                .child(t("Play a song to see its lyrics."))
                 .into_any_element();
         };
         let mut body = div().flex().flex_col().size_full().min_h_0().gap_4().child(
@@ -446,7 +471,7 @@ impl Raag {
                         .p_5()
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
-                        .child("Finding lyrics…"),
+                        .child(t("Finding lyrics…")),
                 )
                 .into_any_element();
         }
@@ -467,7 +492,7 @@ impl Raag {
                     div()
                         .p_5()
                         .text_sm()
-                        .child("No lyrics are available for this song."),
+                        .child(t("No lyrics are available for this song.")),
                 )
                 .into_any_element();
         }
@@ -487,28 +512,22 @@ impl Raag {
                     range
                         .map(|row| {
                             if row < 2 || row >= this.lyrics.len() + 2 {
-                                return div().h(rems(7.)).into_any_element();
+                                return div().h(this.lyric_height()).into_any_element();
                             }
                             let index = row - 2;
                             let line = &this.lyrics[index];
                             let seconds = line.seconds;
                             let active = this.lyrics_active == Some(index);
                             let past = this.lyrics_active.is_some_and(|current| index < current);
-                            let label = div()
-                                .w_full()
-                                .text_center()
-                                .text_size(rems(1.65))
-                                .line_height(relative(1.25))
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(cx.theme().foreground)
+                            let label = this
+                                .lyric_label(line, active || !synced, cx.theme().foreground)
                                 .opacity(if !synced || active {
                                     1.
                                 } else if past {
                                     0.62
                                 } else {
                                     0.28
-                                })
-                                .child(line.text.clone());
+                                });
                             let label = if active && !cx.reduce_motion() {
                                 label
                                     .with_animation(
@@ -523,18 +542,25 @@ impl Raag {
                             };
                             content_button(("lyric-line", index))
                                 .w_full()
-                                .h(rems(7.))
+                                .h(this.lyric_height())
                                 .px_5()
                                 .flex()
                                 .items_center()
                                 .justify_center()
                                 .overflow_hidden()
                                 .disabled(seconds.is_none())
-                                .accessibility_label(format!("Seek to {}", line.text))
+                                .accessibility_label(tr!("Seek to {}", line.text))
                                 .child(label)
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     if let Some(time) = seconds {
-                                        this.commit_seek(time, cx);
+                                        this.commit_seek(
+                                            (time
+                                                - this.selected.as_ref().map_or(0., |t| {
+                                                    this.library.lyrics.offset(&t.id)
+                                                }))
+                                            .max(0.),
+                                            cx,
+                                        );
                                     }
                                 }))
                                 .into_any_element()
@@ -576,9 +602,9 @@ impl Raag {
                 .ghost()
                 .small()
                 .label(if self.lyrics_follow {
-                    "Following song"
+                    t("Following song")
                 } else {
-                    "Resume following"
+                    t("Resume following")
                 })
                 .selected(self.lyrics_follow)
                 .on_click(cx.listener(|this, _, _, cx| {
@@ -593,7 +619,7 @@ impl Raag {
             div()
                 .text_xs()
                 .text_color(cx.theme().muted_foreground)
-                .child("Untimed lyrics")
+                .child(t("Untimed lyrics"))
                 .into_any_element()
         }))
         .into_any_element()

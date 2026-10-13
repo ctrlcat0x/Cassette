@@ -19,9 +19,9 @@ impl Quality {
     }
     pub fn label(self) -> &'static str {
         match self {
-            Self::DataSaver => "Data saver",
-            Self::Standard => "Standard",
-            Self::Best => "Best available",
+            Self::DataSaver => crate::i18n::t("Data saver"),
+            Self::Standard => crate::i18n::t("Standard"),
+            Self::Best => crate::i18n::t("Best available"),
         }
     }
     pub fn format(self) -> &'static str {

@@ -4,6 +4,52 @@ impl Raag {
     pub(super) fn open_link(&mut self, link: raag::links::Link, cx: &mut Context<Self>) {
         use raag::links::Link;
         match link {
+            Link::Spotify { kind, id } => {
+                let playlist = kind == "playlist";
+                self.notice = Some(t("Matching Spotify metadata on YouTube Music…").into());
+                cx.spawn(async move |owner, cx| {
+                    let result = cx
+                        .background_spawn(async move {
+                            raag::links::resolve_spotify(&kind, &id).map_err(|e| e.to_string())
+                        })
+                        .await;
+                    let _ = owner.update(cx, |this, cx| {
+                        match result {
+                            Ok(resolved) => {
+                                this.notice = None;
+                                if let Some(collection) = resolved.collection {
+                                    this.open_track(collection, cx);
+                                } else if playlist {
+                                    match this.library.create_playlist(&resolved.name) {
+                                        Ok(id) => {
+                                            if let Some(p) = this
+                                                .library
+                                                .playlists
+                                                .iter_mut()
+                                                .find(|p| p.id == id)
+                                            {
+                                                p.tracks = resolved.tracks;
+                                            }
+                                            this.save();
+                                            this.navigate(
+                                                Screen::Collection(id, resolved.name, true),
+                                                cx,
+                                            );
+                                        }
+                                        Err(error) => this.notice = Some(error.to_string()),
+                                    }
+                                } else if let Some(track) = resolved.tracks.first().cloned() {
+                                    this.open_track(track, cx);
+                                }
+                            }
+                            Err(error) => this.notice = Some(error),
+                        }
+                        this.content_revision += 1;
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
             Link::Track(id) => {
                 let track = self
                     .library
@@ -13,7 +59,7 @@ impl Raag {
                     .chain(self.visible.iter())
                     .find(|t| t.id == id)
                     .cloned()
-                    .unwrap_or_else(|| Track::song(id, "YouTube Music song", "YouTube Music"));
+                    .unwrap_or_else(|| Track::song(id, t("YouTube Music song"), "YouTube Music"));
                 self.queue.replace(vec![track.clone()], &track.id);
                 self.invalidate_collection();
                 self.start(track, cx);
@@ -47,7 +93,7 @@ impl Raag {
     pub(super) fn search_suggestions(&self, cx: &mut Context<Self>) -> Div {
         div()
             .absolute()
-            .top(px(38.))
+            .top(ui_px(38.))
             .left_0()
             .right_0()
             .flex()
@@ -139,7 +185,11 @@ impl Raag {
         };
         let id = id.clone();
         if *local {
-            if let Some(playlist) = self.library.playlists.iter_mut().find(|p| p.id == id)
+            if let Some(playlist) = self
+                .library
+                .playlists
+                .iter_mut()
+                .find(|p| p.id == id && p.smart.is_none())
                 && let Some(index) = playlist.tracks.iter().position(|t| t == track)
                 && let Some(target) = index
                     .checked_add_signed(delta)
@@ -170,8 +220,9 @@ impl Raag {
                     .and_then(|t| t.set_video_id.clone())
             };
             if target + 1 == page.tracks.len() && delta > 0 && page.continuation.is_some() {
-                self.notice =
-                    Some("Scroll to load the next songs before moving this entry further.".into());
+                self.notice = Some(
+                    t("Scroll to load the next songs before moving this entry further.").into(),
+                );
                 cx.notify();
                 return;
             }
@@ -229,13 +280,22 @@ impl Raag {
                 sort: if download { 0 } else { self.browse_sort },
             });
         if result.is_err() {
-            self.notice = Some("Collection loading queue is full. Wait for it to finish.".into());
+            self.notice =
+                Some(t("Collection loading queue is full. Wait for it to finish.").into());
         }
         true
     }
     pub(super) fn playlist_picker(&self, cx: &mut Context<Self>) -> AnyElement {
         let mut entries = self.playlist_entries(usize::MAX);
-        entries.retain(|e| e.track.title.to_lowercase().contains(&self.browse_filter));
+        entries.retain(|e| {
+            e.track.title.to_lowercase().contains(&self.browse_filter)
+                && (!e.local
+                    || self
+                        .library
+                        .playlists
+                        .iter()
+                        .any(|p| p.id == e.track.id && p.smart.is_none()))
+        });
         let count = entries.len();
         let entity = cx.entity();
         div()
@@ -244,7 +304,7 @@ impl Raag {
             .size_full()
             .px_8()
             .gap_4()
-            .child(self.title("Choose a destination for the selected music.", cx))
+            .child(self.title(t("Choose a destination for the selected music."), cx))
             .child(Input::new(&self.browse_query))
             .child(
                 self.scroll
@@ -360,15 +420,19 @@ impl Raag {
             .child(
                 Button::new("sort-collection")
                     .ghost()
-                    .label(["Original order", "Title", "Artist", "Duration"][self.browse_sort])
-                    .tooltip("Sort collection")
+                    .label(
+                        [t("Original order"), t("Title"), t("Artist"), t("Duration")]
+                            [self.browse_sort],
+                    )
+                    .tooltip(t("Sort collection"))
                     .dropdown_menu({
                         let owner = cx.weak_entity();
                         let sort = self.browse_sort;
                         move |mut menu, _, _| {
-                            for (index, label) in ["Original order", "Title", "Artist", "Duration"]
-                                .into_iter()
-                                .enumerate()
+                            for (index, label) in
+                                [t("Original order"), t("Title"), t("Artist"), t("Duration")]
+                                    .into_iter()
+                                    .enumerate()
                             {
                                 let owner = owner.clone();
                                 menu = menu.item(
@@ -391,7 +455,11 @@ impl Raag {
             .child(
                 Button::new("select-rows")
                     .ghost()
-                    .label(if self.selecting { "Done" } else { "Select" })
+                    .label(if self.selecting {
+                        t("Done")
+                    } else {
+                        t("Select")
+                    })
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.selecting = !this.selecting;
                         this.selected_rows.clear();
@@ -403,7 +471,7 @@ impl Raag {
                 body.child(
                     Button::new("add-selected")
                         .ghost()
-                        .label("Add to playlist…")
+                        .label(t("Add to playlist…"))
                         .disabled(selected.is_empty())
                         .on_click(cx.listener(|this, _, window, cx| {
                             let tracks = this
@@ -418,7 +486,7 @@ impl Raag {
                 .child(
                     Button::new("select-all")
                         .ghost()
-                        .label("Select all shown")
+                        .label(t("Select all shown"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.selected_rows = this
                                 .visible
@@ -436,9 +504,10 @@ impl Raag {
                         body.child(
                             Button::new("remove-selected")
                                 .ghost()
-                                .label("Remove selected")
+                                .label(t("Remove selected"))
                                 .disabled(
                                     selected.is_empty()
+                                        || matches!(&self.screen, Screen::Collection(id, _, true) if self.library.playlists.iter().any(|p| p.id == *id && p.smart.is_some()))
                                         || matches!(self.screen, Screen::Collection(_, _, false))
                                             && !self.page.editable,
                                 )
@@ -449,7 +518,7 @@ impl Raag {
                 .child(
                     Button::new("enqueue-selected")
                         .ghost()
-                        .label(format!("Queue {}", selected.len()))
+                        .label(tr!("Queue {}", selected.len()))
                         .disabled(selected.is_empty())
                         .on_click(cx.listener(|this, _, _, cx| {
                             for t in this
@@ -466,7 +535,7 @@ impl Raag {
                 .child(
                     Button::new("download-selected")
                         .ghost()
-                        .label("Download selected")
+                        .label(t("Download selected"))
                         .disabled(selected.is_empty())
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.download_tracks(selected.clone(), cx)
@@ -477,7 +546,7 @@ impl Raag {
                 body.child(
                     Button::new("rescan-local")
                         .ghost()
-                        .label("Rescan folders")
+                        .label(t("Rescan folders"))
                         .on_click(cx.listener(|this, _, _, cx| this.rescan_local(cx))),
                 )
             })
@@ -486,8 +555,8 @@ impl Raag {
                     Button::new("download-collection")
                         .ghost()
                         .icon(icon("download"))
-                        .tooltip("Download collection")
-                        .accessibility_label("Download collection")
+                        .tooltip(t("Download collection"))
+                        .accessibility_label(t("Download collection"))
                         .disabled(self.visible.is_empty() || self.download_status.active)
                         .on_click(cx.listener(|this, _, _, cx| {
                             if !this.complete_collection(true) {
@@ -506,6 +575,7 @@ impl Raag {
                         })),
                 )
             })
+            .child(self.playlist_organization_tools(cx))
     }
     fn remove_selected(&mut self, cx: &mut Context<Self>) {
         let tracks: Vec<_> = self
@@ -516,7 +586,12 @@ impl Raag {
             .collect();
         match &self.screen {
             Screen::Collection(id, _, true) => {
-                if let Some(playlist) = self.library.playlists.iter_mut().find(|p| p.id == *id) {
+                if let Some(playlist) = self
+                    .library
+                    .playlists
+                    .iter_mut()
+                    .find(|p| p.id == *id && p.smart.is_none())
+                {
                     playlist
                         .tracks
                         .retain(|t| !self.selected_rows.contains(&Self::row_key(t)));
@@ -556,21 +631,21 @@ impl Raag {
     }
     pub(super) fn discovery_controls(&self, cx: &mut Context<Self>) -> Div {
         div().flex().flex_col().gap_4()
-            .child(Switch::new("private-session").label("Private listening session").checked(self.private_session)
+            .child(Switch::new("private-session").label(t("Private listening session")).checked(self.private_session)
                 .on_change(cx.listener(|this, value, _, cx| {
                     this.private_session = *value;
                     this.listening = Default::default();
                     this.save();
                     cx.notify();
                 })))
-            .child(div().text_sm().text_color(cx.theme().muted_foreground).child("Until the app closes, new listening is excluded from local history, statistics and YouTube history sync. Queue restoration is disabled; existing history stays intact."))
-            .child(Button::new("export-listening-stats").ghost().label("Export listening statistics…").on_click(cx.listener(|this, _, _, cx| this.export_stats(cx))))
-            .child(Switch::new("sync-listening-history").label("Sync listened songs to YouTube Music").checked(self.library.sync_history)
+            .child(div().text_sm().text_color(cx.theme().muted_foreground).child(t("Until the app closes, new listening is excluded from local history, statistics and YouTube history sync. Queue restoration is disabled; existing history stays intact.")))
+            .child(Button::new("export-listening-stats").ghost().label(t("Export listening statistics…")).on_click(cx.listener(|this, _, _, cx| this.export_stats(cx))))
+            .child(Switch::new("sync-listening-history").label(t("Sync listened songs to YouTube Music")).checked(self.library.sync_history)
                 .on_change(cx.listener(|this, value, _, cx| { this.library.sync_history = *value; this.save(); cx.notify(); })))
-            .child(div().text_sm().text_color(cx.theme().muted_foreground).child("A song is submitted after 70% actual listening. Local listening statistics stay on this device."))
-            .child(Button::new("discovery-mode").ghost().label(format!("Radio discovery: {}", ["Balanced", "Familiar", "New to you"][self.library.discovery_mode.min(2)]))
+            .child(div().text_sm().text_color(cx.theme().muted_foreground).child(t("A song is submitted after 70% actual listening. Local listening statistics stay on this device.")))
+            .child(Button::new("discovery-mode").ghost().label(tr!("Radio discovery: {}", [t("Balanced"), t("Familiar"), t("New to you")][self.library.discovery_mode.min(2)]))
                 .on_click(cx.listener(|this, _, _, cx| { this.library.discovery_mode = (this.library.discovery_mode + 1) % 3; this.save(); this.content_revision += 1; cx.notify(); })))
-            .child(Button::new("reset-hidden").ghost().label(format!("Reset hidden recommendations ({})", self.library.hidden.len()))
+            .child(Button::new("reset-hidden").ghost().label(tr!("Reset hidden recommendations ({})", self.library.hidden.len()))
                 .on_click(cx.listener(|this, _, _, cx| { this.library.hidden.clear(); this.save(); this.refresh_visible(); cx.notify(); })))
     }
     fn export_stats(&mut self, cx: &mut Context<Self>) {
@@ -606,19 +681,19 @@ impl Raag {
             .flex()
             .flex_col()
             .gap_4()
-            .child(Switch::new("jiosaavn-source").label("Try JioSaavn audio first")
+            .child(Switch::new("jiosaavn-source").label(t("Try JioSaavn audio first"))
                 .checked(self.library.audio.jiosaavn)
                 .on_change(cx.listener(|this, value, _, cx| { this.library.audio.jiosaavn = *value; this.apply_audio(cx); })))
             .child(div().text_sm().text_color(cx.theme().muted_foreground)
-                .child("YouTube Music provides your catalog and library. JioSaavn can provide matching AAC audio up to 320 kb/s; YouTube is the fallback."))
-            .child(Button::new("streaming-quality").label(format!("Streaming quality: {}", self.library.audio.streaming_quality.label()))
+                .child(t("YouTube Music provides your catalog and library. JioSaavn can provide matching AAC audio up to 320 kb/s; YouTube is the fallback.")))
+            .child(Button::new("streaming-quality").label(tr!("Streaming quality: {}", self.library.audio.streaming_quality.label()))
                 .on_click(cx.listener(|this, _, _, cx| { this.library.audio.streaming_quality = this.library.audio.streaming_quality.next(); this.apply_audio(cx); })))
-            .child(Button::new("download-quality").label(format!("Download quality: {}", self.library.audio.download_quality.label()))
+            .child(Button::new("download-quality").label(tr!("Download quality: {}", self.library.audio.download_quality.label()))
                 .on_click(cx.listener(|this, _, _, cx| { this.library.audio.download_quality = this.library.audio.download_quality.next(); this.apply_audio(cx); })))
-            .child(div().text_sm().text_color(cx.theme().muted_foreground).child("Applies to newly fetched audio. Existing downloads and the buffered next song are kept. Quality depends on the available recording and source."))
+            .child(div().text_sm().text_color(cx.theme().muted_foreground).child(t("Applies to newly fetched audio. Existing downloads and the buffered next song are kept. Quality depends on the available recording and source.")))
             .child(
                 Switch::new("normalize")
-                    .label("Normalize loudness")
+                    .label(t("Normalize loudness"))
                     .checked(self.library.audio.normalize)
                     .on_change(cx.listener(|this, value, _, cx| {
                         this.library.audio.normalize = *value;
@@ -627,16 +702,16 @@ impl Raag {
             )
             .child(
                 Button::new("audio-output")
-                    .label(format!(
+                    .label(tr!(
                         "Output: {}",
                         devices
                             .iter()
                             .find(|(id, _)| id == &selected)
-                            .map_or("System default", |(_, name)| name.as_str())
+                            .map_or(t("System default"), |(_, name)| name.as_str())
                     ))
                     .dropdown_menu(move |mut menu, _, _| {
                         for (id, name) in
-                            std::iter::once(("auto".to_owned(), "System default".to_owned()))
+                            std::iter::once(("auto".to_owned(), t("System default").to_owned()))
                                 .chain(devices.clone())
                         {
                             let owner = owner.clone();
@@ -652,7 +727,7 @@ impl Raag {
             );
         body = body.child(self.equalizer_graph(window, cx)).child(
             Button::new("crossfade")
-                .label(format!(
+                .label(tr!(
                     "Crossfade: {:.0} seconds",
                     self.library.audio.crossfade
                 ))
@@ -666,12 +741,12 @@ impl Raag {
             .flex_wrap()
             .items_center()
             .gap_2()
-            .child("Sleep timer");
+            .child(t("Sleep timer"));
         for minutes in [15usize, 30, 60] {
             timer = timer.child(
                 Button::new(("sleep", minutes))
                     .ghost()
-                    .label(format!("{minutes} min"))
+                    .label(tr!("{minutes} min"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.sleep_until =
                             Some(Instant::now() + Duration::from_secs(minutes as u64 * 60));
@@ -686,7 +761,7 @@ impl Raag {
                 .child(
                     Button::new("sleep-end")
                         .ghost()
-                        .label("End of song")
+                        .label(t("End of song"))
                         .selected(self.sleep_end)
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.sleep_end = true;
@@ -698,7 +773,7 @@ impl Raag {
                 .child(
                     Button::new("sleep-cancel")
                         .ghost()
-                        .label("Cancel")
+                        .label(t("Cancel"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.sleep_until = None;
                             this.sleep_end = false;
@@ -708,7 +783,7 @@ impl Raag {
                 ),
         )
         .when_some(self.sleep_until, |body, deadline| {
-            body.child(div().text_sm().child(format!(
+            body.child(div().text_sm().child(tr!(
                     "Pausing in {} min",
                     deadline
                         .saturating_duration_since(Instant::now())
@@ -733,12 +808,14 @@ impl Raag {
             .gap_3()
             .flex_shrink_0()
             .child(div().text_sm().child(if state.active {
-                format!(
+                tr!(
                     "Downloading {} · {}/{}",
-                    state.current, state.completed, state.total
+                    state.current,
+                    state.completed,
+                    state.total
                 )
             } else {
-                format!(
+                tr!(
                     "{} available songs · {} pinned · {:.0} MiB used",
                     self.offline.len(),
                     state.pinned,
@@ -756,7 +833,7 @@ impl Raag {
                     .child(
                         Button::new("cancel-downloads")
                             .ghost()
-                            .label("Cancel downloads")
+                            .label(t("Cancel downloads"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.downloads.cancel();
                                 this.backend
@@ -769,7 +846,7 @@ impl Raag {
                     .child(
                         Button::new("clear-audio-cache")
                             .ghost()
-                            .label("Clear unpinned cache")
+                            .label(t("Clear unpinned cache"))
                             .on_click(cx.listener(|this, _, _, _| {
                                 this.downloads
                                     .submit(crate::downloads::Job::Remove(None, true));
@@ -778,7 +855,7 @@ impl Raag {
                     .child(
                         Button::new("audio-budget")
                             .ghost()
-                            .label(format!(
+                            .label(tr!(
                                 "Storage limit: {} GiB",
                                 self.library.audio_budget / 1073741824
                             ))
@@ -802,7 +879,7 @@ impl Raag {
             )
             .child(
                 Switch::new("offline-only")
-                    .label("Offline mode")
+                    .label(t("Offline mode"))
                     .checked(self.library.offline_only)
                     .on_change(cx.listener(|this, value, _, cx| {
                         this.library.offline_only = *value;
@@ -896,7 +973,7 @@ impl Raag {
             self.library.ytdlp_path.clone(),
             self.playback_cookies(),
         )) {
-            self.notice = Some("Download queue is full. Wait for a download to finish.".into());
+            self.notice = Some(t("Download queue is full. Wait for a download to finish.").into());
         }
         self.content_revision += 1;
         cx.notify();

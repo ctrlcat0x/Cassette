@@ -6,8 +6,7 @@ use std::{
 };
 fn main() {
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let embedded = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
-        && env::var_os("CARGO_FEATURE_BUNDLED_RUNTIME").is_some();
+    let embedded = env::var_os("CARGO_FEATURE_BUNDLED_RUNTIME").is_some();
     if embedded {
         bundle_runtime(&root);
     }
@@ -70,52 +69,33 @@ fn main() {
 }
 
 fn bundle_runtime(root: &Path) {
-    let runtime = root.join(".runtime");
+    let runtime = root.join(".runtime/bundle");
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let mut files = Vec::new();
-    for name in [
-        "mpv.exe",
-        "deno.exe",
-        "versions.json",
-        "licenses/mpv-Copyright",
-        "licenses/yt-dlp-LICENSE",
-        "licenses/deno-LICENSE",
-    ] {
-        let path = runtime.join(name);
+    let windows = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
+    for name in ["mpv", "yt-dlp", "deno"] {
+        let filename = if windows {
+            format!("{name}.exe")
+        } else {
+            name.into()
+        };
         assert!(
-            path.is_file(),
-            "Missing {}; run scripts/install-playback-tools.ps1 before building bundled-runtime",
-            path.display()
+            runtime.join(filename).is_file(),
+            "Missing {name}; run python scripts/bundle-runtime.py before building bundled-runtime"
         );
-        files.push((path, name.to_owned()));
     }
     assert!(
-        runtime.join("yt-dlp/yt-dlp.exe").is_file() && runtime.join("yt-dlp/_internal").is_dir(),
-        "Missing unpacked yt-dlp; run scripts/install-playback-tools.ps1"
+        runtime.join("versions.json").is_file(),
+        "Missing playback tool provenance"
     );
-    collect_runtime(&runtime.join("yt-dlp"), &runtime, &mut files);
-    // Include mpv's adjacent DLLs and all upstream notices, never installers or caches.
-    for entry in fs::read_dir(&runtime).unwrap().flatten() {
-        if entry
-            .path()
-            .extension()
-            .is_some_and(|extension| extension == "dll")
-        {
-            files.push((
-                entry.path(),
-                entry.file_name().to_string_lossy().into_owned(),
-            ));
-        }
-    }
-    collect_runtime(&runtime.join("doc"), &runtime, &mut files);
-    collect_runtime(&runtime.join("licenses"), &runtime, &mut files);
-    for name in ["LICENSE", "THIRD-PARTY-NOTICES.md"] {
-        files.push((root.join(name), name.to_owned()));
-    }
-    let dependency_notices = root.join("target/third-party-licenses");
-    collect_runtime(&dependency_notices, &root.join("target"), &mut files);
-    // A previous developer runtime may still contain the abandoned native engine.
-    files.retain(|(_, name)| name != "libmpv-2.dll" && name != "licenses/libmpv-client.h");
+    collect_runtime(&runtime, &runtime, &mut files);
+    files.push((root.join("LICENSE"), "licenses/Cassette-LICENSE".into()));
+    files.retain(|(_, name)| {
+        !name.starts_with("installer/")
+            && !name.ends_with(".bat")
+            && !name.ends_with(".ps1")
+            && name != "mpv.com"
+    });
     files.sort_by(|left, right| left.1.cmp(&right.1));
     files.dedup_by(|left, right| left.1 == right.1);
     let payload = output.join("runtime.gz");

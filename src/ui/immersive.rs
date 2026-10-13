@@ -137,7 +137,7 @@ impl Raag {
                 .child(self.progress(cx))
                 .child(self.chrome_view(
                     ChromePart::ImmersiveButtons,
-                    StyleRefinement::default().w_full().h(px(40.)),
+                    StyleRefinement::default().w_full().h(ui_px(40.)),
                 ))
             });
         let content = if self.immersive_lyrics {
@@ -182,7 +182,7 @@ impl Raag {
                         .child(self.progress(cx))
                         .child(self.chrome_view(
                             ChromePart::ImmersiveButtons,
-                            StyleRefinement::default().w_full().h(px(40.)),
+                            StyleRefinement::default().w_full().h(ui_px(40.)),
                         )),
                 )
         };
@@ -192,17 +192,17 @@ impl Raag {
             .ghost()
             .icon(icon("nav-arrow-down"))
             .text_color(white.opacity(0.75))
-            .tooltip("Player options")
-            .accessibility_label("Fullscreen player options")
+            .tooltip(t("Player options"))
+            .accessibility_label(t("Fullscreen player options"))
             .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
-                menu.menu_with_check("Lyrics", show_lyrics, Box::new(ToggleImmersiveLyrics))
+                menu.menu_with_check(t("Lyrics"), show_lyrics, Box::new(ToggleImmersiveLyrics))
                     .menu_with_check(
-                        "Blurred artwork background",
+                        t("Blurred artwork background"),
                         show_artwork,
                         Box::new(ToggleImmersiveArtwork),
                     )
                     .separator()
-                    .menu("Exit fullscreen", Box::new(ExitImmersive))
+                    .menu(t("Exit fullscreen"), Box::new(ExitImmersive))
             });
         div()
             .id("immersive-player")
@@ -278,7 +278,7 @@ impl Raag {
                     .child(
                         div()
                             .text_2xl()
-                            .font_family("Manrope")
+                            .font_family(raag::i18n::font())
                             .font_weight(FontWeight::BOLD)
                             .line_height(relative(1.15))
                             .line_clamp(2)
@@ -311,8 +311,8 @@ impl Raag {
                     .icon(icon("repeat"))
                     .text_color(rgb(0xffffff))
                     .selected(self.queue.repeat != Repeat::Off)
-                    .tooltip("Repeat")
-                    .accessibility_label("Repeat")
+                    .tooltip(t("Repeat"))
+                    .accessibility_label(t("Repeat"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.queue.repeat = match this.queue.repeat {
                             Repeat::Off => Repeat::All,
@@ -329,8 +329,8 @@ impl Raag {
                     .icon(icon("shuffle"))
                     .text_color(rgb(0xffffff))
                     .selected(self.queue.shuffle)
-                    .tooltip("Shuffle")
-                    .accessibility_label("Shuffle")
+                    .tooltip(t("Shuffle"))
+                    .accessibility_label(t("Shuffle"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.queue.toggle_shuffle();
                         cx.notify();
@@ -347,7 +347,7 @@ impl Raag {
                 .justify_center()
                 .text_center()
                 .text_color(rgb(0xffffff).opacity(0.65))
-                .child("Finding lyrics…")
+                .child(t("Finding lyrics…"))
                 .into_any_element();
         }
         if self.lyrics.is_empty() {
@@ -361,7 +361,7 @@ impl Raag {
                 .child(
                     self.lyrics_error
                         .clone()
-                        .unwrap_or_else(|| "No lyrics for this song yet.".into()),
+                        .unwrap_or_else(|| t("No lyrics for this song yet.").into()),
                 )
                 .into_any_element();
         }
@@ -381,7 +381,7 @@ impl Raag {
                     range
                         .map(|row| {
                             if row < 2 || row >= this.lyrics.len() + 2 {
-                                return div().h(rems(7.)).into_any_element();
+                                return div().h(this.lyric_height()).into_any_element();
                             }
                             let index = row - 2;
                             let line = &this.lyrics[index];
@@ -389,31 +389,29 @@ impl Raag {
                             let active = this.lyrics_active == Some(index);
                             content_button(("immersive-line", index))
                                 .w_full()
-                                .h(rems(7.))
+                                .h(this.lyric_height())
                                 .justify_center()
                                 .items_center()
                                 .text_center()
                                 .overflow_hidden()
                                 .px_3()
-                                .accessibility_label(format!("Seek to {}", line.text))
+                                .accessibility_label(tr!("Seek to {}", line.text))
                                 .disabled(time.is_none())
-                                .child(
-                                    div()
-                                        .w_full()
-                                        .text_center()
-                                        .text_size(rems(1.9))
-                                        .line_height(relative(1.2))
-                                        .font_weight(FontWeight::BOLD)
-                                        .text_color(rgb(0xffffff).opacity(if active || untimed {
-                                            1.
-                                        } else {
-                                            0.32
-                                        }))
-                                        .child(line.text.clone()),
-                                )
+                                .child(this.lyric_label(
+                                    line,
+                                    active || untimed,
+                                    rgb(0xffffff).into(),
+                                ))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     if let Some(time) = time {
-                                        this.commit_seek(time, cx);
+                                        this.commit_seek(
+                                            (time
+                                                - this.selected.as_ref().map_or(0., |t| {
+                                                    this.library.lyrics.offset(&t.id)
+                                                }))
+                                            .max(0.),
+                                            cx,
+                                        );
                                     }
                                 }))
                                 .into_any_element()
@@ -443,7 +441,7 @@ impl Raag {
                             Button::new("immersive-follow")
                                 .ghost()
                                 .small()
-                                .label("Follow song")
+                                .label(t("Follow song"))
                                 .text_color(rgb(0xffffff))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.lyrics_follow = true;

@@ -18,10 +18,11 @@ use raag::{
     account::{Edit, Section as AccountSection},
     catalog::LyricLine,
     clock,
+    i18n::t,
     library::{Library, data_dir},
     playback::{Player, PlayerCommand, PlayerEvent},
     queue::{Queue, Repeat},
-    rotation,
+    rotation, tr,
 };
 use std::{
     collections::HashMap,
@@ -32,6 +33,9 @@ use std::{
 
 // GPUI's unstyled button defaults to a one-em line box, which clips descenders
 // inside truncated labels. All content buttons share readable text geometry.
+fn ui_px(value: f32) -> Pixels {
+    px(value * raag::i18n::scale())
+}
 fn content_button(id: impl Into<ElementId>) -> ContentButton {
     ContentButton::new(id).line_height(relative(1.4))
 }
@@ -40,9 +44,10 @@ fn playback_depth(button: Button) -> Button {
         .border_1()
         .border_color(rgb(0xffffff).opacity(0.16))
         .shadow(vec![
-            BoxShadow::new(px(0.), px(2.), rgb(0x000000).opacity(0.24).into()).blur_radius(px(4.)),
-            BoxShadow::new(px(0.), px(1.), rgb(0xffffff).opacity(0.24).into()).inset(),
-            BoxShadow::new(px(0.), px(-1.), rgb(0x000000).opacity(0.14).into()).inset(),
+            BoxShadow::new(ui_px(0.), ui_px(2.), rgb(0x000000).opacity(0.24).into())
+                .blur_radius(ui_px(4.)),
+            BoxShadow::new(ui_px(0.), ui_px(1.), rgb(0xffffff).opacity(0.24).into()).inset(),
+            BoxShadow::new(ui_px(0.), ui_px(-1.), rgb(0x000000).opacity(0.14).into()).inset(),
         ])
 }
 fn artwork_frame(cx: &App) -> Div {
@@ -52,8 +57,9 @@ fn artwork_frame(cx: &App) -> Div {
         .border_1()
         .border_color(cx.theme().foreground.opacity(0.16))
         .shadow(vec![
-            BoxShadow::new(px(0.), px(6.), rgb(0x000000).opacity(0.28).into()).blur_radius(px(18.)),
-            BoxShadow::new(px(0.), px(1.), rgb(0xffffff).opacity(0.08).into()).inset(),
+            BoxShadow::new(ui_px(0.), ui_px(6.), rgb(0x000000).opacity(0.28).into())
+                .blur_radius(ui_px(18.)),
+            BoxShadow::new(ui_px(0.), ui_px(1.), rgb(0xffffff).opacity(0.08).into()).inset(),
         ])
         .overflow_hidden()
 }
@@ -63,6 +69,7 @@ mod artists;
 mod chrome;
 mod collections;
 mod discovery;
+mod enhancements;
 mod equalizer;
 mod features;
 mod home;
@@ -70,6 +77,7 @@ mod immersive;
 mod panels;
 mod recap;
 use chrome::{ChromePane, ChromePart};
+use enhancements::{DragPreview, PlaylistDrag, TrackDrag};
 
 actions!(
     raag,
@@ -143,22 +151,22 @@ enum Screen {
 impl Screen {
     fn title(&self) -> &str {
         match self {
-            Self::Home => "Home",
-            Self::Explore => "Explore",
-            Self::Library => "Your library",
-            Self::Liked => "Liked songs",
-            Self::Recents => "Recently played",
-            Self::Local => "Local files",
-            Self::Search => "Search",
+            Self::Home => t("Home"),
+            Self::Explore => t("Explore"),
+            Self::Library => t("Your library"),
+            Self::Liked => t("Liked songs"),
+            Self::Recents => t("Recently played"),
+            Self::Local => t("Local files"),
+            Self::Search => t("Search"),
             Self::Collection(_, title, _) => title,
             Self::Discover(_, _, title) => title,
-            Self::Radio(_) => "Song radio",
-            Self::PlaylistPicker => "Add to playlist",
-            Self::Queue => "Next up",
-            Self::Lyrics => "Lyrics",
-            Self::Settings => "Settings",
-            Self::Offline => "Offline",
-            Self::Recap => "Your rhythm",
+            Self::Radio(_) => t("Song radio"),
+            Self::PlaylistPicker => t("Add to playlist"),
+            Self::Queue => t("Next up"),
+            Self::Lyrics => t("Lyrics"),
+            Self::Settings => t("Settings"),
+            Self::Offline => t("Offline"),
+            Self::Recap => t("Your rhythm"),
         }
     }
 }
@@ -260,6 +268,7 @@ pub struct Raag {
     sidebar_scroll: crate::motion::SmoothScroll,
     lyrics_scroll: crate::motion::SmoothScroll,
     lyrics_active: Option<usize>,
+    lyrics_word: Option<usize>,
     lyrics_geometry: Option<(f32, f32)>,
     lyrics_follow: bool,
     offline: Arc<Vec<Track>>,
@@ -287,6 +296,15 @@ pub struct Raag {
     pending_edits: std::collections::VecDeque<Edit>,
     queue_epoch: u64,
     recap_period: usize,
+    organization_name: Entity<InputState>,
+    smart_name: Entity<InputState>,
+    smart_query: Entity<InputState>,
+    smart_artist: Entity<InputState>,
+    smart_album: Entity<InputState>,
+    smart_plays: Entity<InputState>,
+    editing_smart: Option<String>,
+    smart_source: usize,
+    smart_exclude_explicit: bool,
     playlist_name: Entity<InputState>,
     mpv_path: Entity<InputState>,
     ytdlp_path: Entity<InputState>,
@@ -387,6 +405,7 @@ impl Raag {
             Ok(library) => (library, true, None),
             Err(error) => (Library::default(), false, Some(error.to_string())),
         };
+        raag::i18n::set_language(&library.language);
         let system = crate::system::System::new().ok();
         let media = crate::media::Media::new(window);
         raag::cache::configure(library.audio_budget, library.offline_only);
@@ -403,6 +422,10 @@ impl Raag {
                 .update(cx, |this, cx| this.should_close(window, cx))
                 .unwrap_or(true)
         });
+        raag::i18n::set_language(&library.language);
+        raag::i18n::set_scale(library.ui_scale);
+        gpui_kit::component::set_locale(&library.language);
+        window.set_rem_size(px(16. * library.ui_scale));
         theme::apply(&library, None, cx);
         let owner = cx.weak_entity();
         let content = cx.new(|_| ContentPane {
@@ -432,11 +455,21 @@ impl Raag {
         let mini_seek_focus = cx.focus_handle().tab_stop(true);
         let eq_focus = cx.focus_handle().tab_stop(true);
         window.focus(&focus, cx);
-        let query =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search songs, artists, albums…"));
-        let playlist_name = cx.new(|cx| InputState::new(window, cx).placeholder("Playlist name"));
+        let query = cx
+            .new(|cx| InputState::new(window, cx).placeholder(t("Search songs, artists, albums…")));
+        let playlist_name =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t("Playlist name")));
+        let organization_name =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t("Folder name")));
+        let smart_name =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t("Smart playlist name")));
+        let smart_query =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t("Song title, artist or album")));
+        let smart_artist = cx.new(|cx| InputState::new(window, cx).placeholder(t("Any artist")));
+        let smart_album = cx.new(|cx| InputState::new(window, cx).placeholder(t("Any album")));
+        let smart_plays = cx.new(|cx| InputState::new(window, cx).placeholder("0"));
         let browse_query =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Filter this collection…"));
+            cx.new(|cx| InputState::new(window, cx).placeholder(t("Filter this collection…")));
         let browse_subscription = cx.subscribe(&browse_query, |this, input, event, cx| {
             if matches!(event, InputEvent::Change) {
                 this.browse_filter = input.read(cx).value().to_lowercase();
@@ -447,12 +480,12 @@ impl Raag {
         });
         let mpv_path = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Automatic (mpv on PATH or bundled)")
+                .placeholder(t("Automatic (mpv on PATH or bundled)"))
                 .default_value(library.mpv_path.clone())
         });
         let ytdlp_path = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Automatic (yt-dlp on PATH or bundled)")
+                .placeholder(t("Automatic (yt-dlp on PATH or bundled)"))
                 .default_value(library.ytdlp_path.clone())
         });
         let timeline = cx.new(|_| SliderState::new().step(0.1));
@@ -501,13 +534,29 @@ impl Raag {
                     this.suggestions.clear();
                     let query = input.read(cx).value().to_string();
                     this.suggestion_pending = (query.trim().chars().count() >= 2
-                        && query.len() <= 512)
-                        .then(|| (query, Instant::now() + Duration::from_millis(350)));
+                        && query.len() <= 512
+                        && !query.starts_with("https://")
+                        && !query.starts_with("cassette://")
+                        && !query.starts_with("spotify:"))
+                    .then(|| (query, Instant::now() + Duration::from_millis(350)));
                     cx.notify();
                 }
                 if matches!(event, InputEvent::PressEnter { .. }) {
                     let query = input.read(cx).value().to_string();
                     if query.trim().is_empty() {
+                        return;
+                    }
+                    if query.starts_with("https://")
+                        || query.starts_with("cassette://")
+                        || query.starts_with("spotify:")
+                    {
+                        match raag::links::Link::parse(query.trim()) {
+                            Ok(link) => this.open_link(link, cx),
+                            Err(error) => this.notice = Some(error.to_string()),
+                        };
+                        this.suggestions.clear();
+                        window.focus(&this.focus, cx);
+                        cx.notify();
                         return;
                     }
                     this.suggestion_pending = None;
@@ -621,6 +670,7 @@ impl Raag {
             sidebar_scroll: crate::motion::SmoothScroll::new(),
             lyrics_scroll: crate::motion::SmoothScroll::new(),
             lyrics_active: None,
+            lyrics_word: None,
             lyrics_geometry: None,
             lyrics_follow: true,
             offline: Arc::new(vec![]),
@@ -648,6 +698,15 @@ impl Raag {
             pending_edits: Default::default(),
             queue_epoch: 0,
             recap_period: 0,
+            organization_name,
+            smart_name,
+            smart_query,
+            smart_artist,
+            smart_album,
+            smart_plays,
+            editing_smart: None,
+            smart_source: 0,
+            smart_exclude_explicit: false,
             playlist_name,
             mpv_path,
             ytdlp_path,
@@ -1278,7 +1337,7 @@ impl Raag {
                             self.library.local.push(track);
                         }
                     }
-                    self.notice = Some(format!("Added {count} local tracks"));
+                    self.notice = Some(tr!("Added {count} local tracks"));
                     self.loading = false;
                     self.save();
                     self.refresh_visible();
@@ -1295,7 +1354,7 @@ impl Raag {
                             self.lyrics = lyrics.lines;
                             self.lyrics_error = lyrics
                                 .instrumental
-                                .then(|| "Lyrics aren’t available for this recording.".into());
+                                .then(|| t("Lyrics aren’t available for this recording.").into());
                         }
                         Err(message) => {
                             self.lyrics.clear();
@@ -1628,6 +1687,11 @@ impl Raag {
         }
     }
     fn refresh_visible(&mut self) {
+        let saved = self.account_tracks(AccountSection::Songs);
+        let liked = self.account_tracks(AccountSection::Liked);
+        let history = self.account_tracks(AccountSection::History);
+        self.library
+            .refresh_smart_playlists_with(&saved, &liked, &history);
         self.content_revision += 1;
         let tracks = match &self.screen {
             Screen::Home => {
@@ -1966,14 +2030,19 @@ impl Raag {
         let Some(track) = self.selected.clone() else {
             return;
         };
-        if self.lyrics_id == track.id {
+        let prefix = format!("{}:{:?}:", track.id, self.library.lyrics.source);
+        if self.lyrics_id.starts_with(&prefix) {
             return;
         }
-        self.lyrics_id = track.id.clone();
+        let key = format!("{prefix}{}", self.lyrics_revision);
+        self.lyrics_id = key.clone();
         self.lyrics_loading = true;
         self.lyrics_revision = self.lyrics_revision.wrapping_add(1);
         self.lyrics_error = None;
-        let _ = self.backend.lyrics.send((track.id.clone(), track));
+        let _ = self
+            .backend
+            .lyrics
+            .send((key, track, self.library.lyrics.source, false));
     }
     fn like(&mut self, track: Track, cx: &mut Context<Self>) {
         if self.signed_in() && track.kind == ItemKind::Song {
@@ -2057,7 +2126,7 @@ impl Raag {
     }
     fn content_width(&self, window: &Window) -> f32 {
         let [left, right, _] = self.shell_motion.dimensions();
-        let left = left + 12. * (left / 256.).clamp(0., 1.);
+        let left = left + 12. * (left / (256. * raag::i18n::scale())).clamp(0., 1.);
         (f32::from(window.bounds().size.width) - 24. - left - right).max(0.)
     }
     /// Density changes with the window, not with transient pane visibility.
@@ -2071,7 +2140,7 @@ impl Raag {
             files: true,
             directories: true,
             multiple: true,
-            prompt: Some("Add music files or a folder".into()),
+            prompt: Some(t("Add music files or a folder").into()),
         });
         cx.spawn(async move |view, cx| {
             if let Ok(Ok(Some(paths))) = prompt.await {
@@ -2118,7 +2187,8 @@ impl Raag {
         self.auth.sign_in(None);
         self.content_revision += 1;
         self.notice = Some(
-            "Complete sign-in in the Google window. Cassette never receives your password.".into(),
+            t("Complete sign-in in the Google window. Cassette never receives your password.")
+                .into(),
         );
         cx.notify();
     }
@@ -2134,7 +2204,7 @@ impl Raag {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Choose your Netscape-format YouTube cookie file".into()),
+            prompt: Some(t("Choose your Netscape-format YouTube cookie file").into()),
         });
         cx.spawn(async move |view, cx| {
             if let Ok(Ok(Some(paths))) = prompt.await
@@ -2145,7 +2215,7 @@ impl Raag {
                     this.auth.sign_in(Some(path));
                     this.content_revision += 1;
                     this.right_content.update(cx, |_, cx| cx.notify());
-                    this.notice = Some("Validating your YouTube session…".into());
+                    this.notice = Some(t("Validating your YouTube session…").into());
                     cx.notify();
                 });
             }
@@ -2214,21 +2284,21 @@ impl Raag {
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
                     .child(if self.editing_description {
-                        "Playlist description"
+                        t("Playlist description")
                     } else if self.playlist_editor_remote {
-                        "YouTube Music playlist"
+                        t("YouTube Music playlist")
                     } else {
-                        "On this computer"
+                        t("On this computer")
                     }),
             )
-            .child(Input::new(&self.playlist_name).flex_1().min_w(px(160.)))
+            .child(Input::new(&self.playlist_name).flex_1().min_w(ui_px(160.)))
             .child(
                 Button::new("create-playlist")
                     .primary()
                     .label(if self.editing_description {
-                        "Save description"
+                        t("Save description")
                     } else {
-                        "Save playlist"
+                        t("Save playlist")
                     })
                     .disabled(self.playlist_editor_remote && self.account.busy_edits())
                     .on_click(
@@ -2238,7 +2308,7 @@ impl Raag {
             .child(
                 Button::new("cancel-playlist")
                     .ghost()
-                    .label("Cancel")
+                    .label(t("Cancel"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.editing_playlist = false;
                         this.editing_description = false;
@@ -2263,7 +2333,7 @@ impl Raag {
                     .await;
                 let _ = view.update(cx, |this, cx| {
                     this.notice = Some(match result {
-                        Ok(()) => "Playlist exported".into(),
+                        Ok(()) => t("Playlist exported").into(),
                         Err(error) => error,
                     });
                     cx.notify();
@@ -2277,7 +2347,7 @@ impl Raag {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Import a Cassette playlist".into()),
+            prompt: Some(t("Import a Cassette playlist").into()),
         });
         cx.spawn(async move |view, cx| {
             if let Ok(Ok(Some(paths))) = prompt.await
@@ -2326,9 +2396,11 @@ impl Raag {
     fn remove_playlist(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         let prompt = window.prompt(
             PromptLevel::Warning,
-            "Remove this playlist?",
-            Some("This removes the playlist from Cassette. Your local audio files are kept."),
-            &["Cancel", "Remove playlist"],
+            t("Remove this playlist?"),
+            Some(t(
+                "This removes the playlist from Cassette. Your local audio files are kept.",
+            )),
+            &[t("Cancel"), t("Remove playlist")],
             cx,
         );
         cx.spawn(async move |view, cx| {
@@ -2353,7 +2425,7 @@ impl Raag {
             .child(
                 gpui_kit::div()
                     .text_3xl()
-                    .font_family("Manrope")
+                    .font_family(raag::i18n::font())
                     .font_weight(FontWeight::BOLD)
                     .child(self.screen.title().to_owned()),
             )
@@ -2524,9 +2596,9 @@ impl Raag {
             .map(|time| time.elapsed().as_secs_f32())
             .unwrap_or(1.);
         let pixels = extent.to_pixels(cx.theme().font_size);
-        let sharp = if pixels <= px(64.) {
+        let sharp = if pixels <= ui_px(64.) {
             self.artwork_variant(path, 0)
-        } else if pixels <= px(384.) {
+        } else if pixels <= ui_px(384.) {
             self.artwork_variant(path, 1)
         } else {
             path.clone()
@@ -2741,7 +2813,7 @@ impl Raag {
             .items_center()
             .justify_between()
             .w_full()
-            .h(px(72.))
+            .h(ui_px(72.))
             .px_8()
             .gap_4()
             .flex_shrink_0()
@@ -2750,7 +2822,7 @@ impl Raag {
                     .flex()
                     .items_center()
                     .flex_1()
-                    .min_w(px(108.))
+                    .min_w(ui_px(108.))
                     .gap_1()
                     .child(
                         Button::new("toggle-sidebar")
@@ -2760,16 +2832,16 @@ impl Raag {
                             } else {
                                 "sidebar-expand"
                             }))
-                            .tooltip("Toggle sidebar · Ctrl+B")
-                            .accessibility_label("Toggle sidebar")
+                            .tooltip(t("Toggle sidebar · Ctrl+B"))
+                            .accessibility_label(t("Toggle sidebar"))
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
                     )
                     .child(
                         Button::new("back")
                             .ghost()
                             .icon(icon("nav-arrow-left"))
-                            .tooltip("Back · Alt+Left")
-                            .accessibility_label("Back")
+                            .tooltip(t("Back · Alt+Left"))
+                            .accessibility_label(t("Back"))
                             .disabled(self.back.is_empty())
                             .on_click(
                                 cx.listener(|this, _, _, cx| this.history_navigation(false, cx)),
@@ -2779,8 +2851,8 @@ impl Raag {
                         Button::new("forward")
                             .ghost()
                             .icon(icon("nav-arrow-right"))
-                            .tooltip("Forward")
-                            .accessibility_label("Forward")
+                            .tooltip(t("Forward"))
+                            .accessibility_label(t("Forward"))
                             .disabled(self.forward.is_empty())
                             .on_click(
                                 cx.listener(|this, _, _, cx| this.history_navigation(true, cx)),
@@ -2823,12 +2895,12 @@ impl Raag {
                     .items_center()
                     .justify_end()
                     .flex_1()
-                    .min_w(px(108.))
+                    .min_w(ui_px(108.))
                     .child(
                         Button::new("profile")
                             .ghost()
                             .rounded_full()
-                            .size(px(34.))
+                            .size(ui_px(34.))
                             .p_0()
                             .overflow_hidden()
                             .bg(cx.theme().muted)
@@ -2858,27 +2930,27 @@ impl Raag {
                                         )
                                     }),
                             )
-                            .tooltip("Your music and settings")
-                            .accessibility_label("Open profile menu")
+                            .tooltip(t("Your music and settings"))
+                            .accessibility_label(t("Open profile menu"))
                             .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
                                 let menu = if can_cancel {
-                                    menu.menu("Cancel sign-in", Box::new(CancelSignIn))
+                                    menu.menu(t("Cancel sign-in"), Box::new(CancelSignIn))
                                 } else if busy {
                                     menu
                                 } else if signed_in {
-                                    menu.menu("Switch YouTube account", Box::new(SignIn))
-                                        .menu("Sign out", Box::new(SignOut))
+                                    menu.menu(t("Switch YouTube account"), Box::new(SignIn))
+                                        .menu(t("Sign out"), Box::new(SignOut))
                                 } else if can_sign_out {
-                                    menu.menu("Retry sign out", Box::new(SignOut))
+                                    menu.menu(t("Retry sign out"), Box::new(SignOut))
                                 } else {
-                                    menu.menu("Sign in to YouTube Music", Box::new(SignIn))
+                                    menu.menu(t("Sign in to YouTube Music"), Box::new(SignIn))
                                 };
                                 let owner = owner.clone();
                                 menu.item(
                                     PopupMenuItem::new(if syncing {
-                                        "Syncing YouTube Music…"
+                                        t("Syncing YouTube Music…")
                                     } else {
-                                        "Sync YouTube Music"
+                                        t("Sync YouTube Music")
                                     })
                                     .disabled(syncing || busy)
                                     .on_click(
@@ -2889,12 +2961,12 @@ impl Raag {
                                     ),
                                 )
                                 .separator()
-                                .menu("Listening story", Box::new(OpenRecap))
-                                .menu("Recently played", Box::new(ShowRecent))
-                                .menu("Local files", Box::new(OpenLocal))
-                                .menu("Offline music", Box::new(OpenOffline))
+                                .menu(t("Listening story"), Box::new(OpenRecap))
+                                .menu(t("Recently played"), Box::new(ShowRecent))
+                                .menu(t("Local files"), Box::new(OpenLocal))
+                                .menu(t("Offline music"), Box::new(OpenOffline))
                                 .separator()
-                                .menu("Settings", Box::new(OpenSettings))
+                                .menu(t("Settings"), Box::new(OpenSettings))
                             }),
                     ),
             )
@@ -2922,10 +2994,10 @@ impl Raag {
             .min_h_0()
             .overflow_y_scroll();
         for (id, label, image, screen) in [
-            ("home", "Home", "home-simple", Screen::Home),
-            ("explore", "Explore", "compass", Screen::Explore),
-            ("library", "Your library", "library", Screen::Library),
-            ("liked", "Liked songs", "heart", Screen::Liked),
+            ("home", t("Home"), "home-simple", Screen::Home),
+            ("explore", t("Explore"), "compass", Screen::Explore),
+            ("library", t("Your library"), "library", Screen::Library),
+            ("liked", t("Liked songs"), "heart", Screen::Liked),
         ] {
             navigation = navigation.child(
                 Button::new(id)
@@ -2970,8 +3042,8 @@ impl Raag {
                 track: track.clone(),
                 liked: true,
             }))
-            .tooltip("Toggle like")
-            .accessibility_label("Toggle like")
+            .tooltip(t("Toggle like"))
+            .accessibility_label(t("Toggle like"))
             .on_click(cx.listener(move |this, _, _, cx| this.like(track.clone(), cx)))
     }
     fn basic_controls(&self, location: &'static str, cx: &mut Context<Self>) -> AnyElement {
@@ -2986,17 +3058,17 @@ impl Raag {
             .items_center()
             .justify_center()
             .w_full()
-            .h(px(40.))
+            .h(ui_px(40.))
             .gap_3()
-            .when(sidebar, |row| row.justify_start().h(px(28.)).gap_1())
+            .when(sidebar, |row| row.justify_start().h(ui_px(28.)).gap_1())
             .child(
                 Button::new(SharedString::from(format!("{location}-previous")))
                     .ghost()
-                    .when(sidebar, |button| button.small().size(px(28.)))
+                    .when(sidebar, |button| button.small().size(ui_px(28.)))
                     .icon(icon("skip-prev"))
                     .text_color(foreground)
-                    .tooltip("Previous · Ctrl+Left")
-                    .accessibility_label("Previous track")
+                    .tooltip(t("Previous · Ctrl+Left"))
+                    .accessibility_label(t("Previous track"))
                     .disabled(self.selected.is_none())
                     .on_click(cx.listener(|this, _, _, cx| this.previous(cx))),
             )
@@ -3006,10 +3078,10 @@ impl Raag {
                         button
                             .primary()
                             .rounded_full()
-                            .size(px(40.))
+                            .size(ui_px(40.))
                             .map(playback_depth)
                     })
-                    .when(sidebar, |button| button.ghost().small().size(px(28.)))
+                    .when(sidebar, |button| button.ghost().small().size(ui_px(28.)))
                     .when(self.immersive, |button| {
                         button.bg(rgb(0xffffff)).text_color(rgb(0x23232b))
                     })
@@ -3020,29 +3092,29 @@ impl Raag {
                         button.child(gpui_kit::component::spinner::Spinner::new().small())
                     })
                     .tooltip(if self.buffering {
-                        "Cancel loading"
+                        t("Cancel loading")
                     } else if self.failed {
-                        "Retry playback"
+                        t("Retry playback")
                     } else {
-                        "Play / pause · Space"
+                        t("Play / pause · Space")
                     })
                     .accessibility_label(if self.buffering {
-                        "Cancel loading"
+                        t("Cancel loading")
                     } else if self.failed {
-                        "Retry playback"
+                        t("Retry playback")
                     } else {
-                        "Play or pause"
+                        t("Play or pause")
                     })
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_playback(cx))),
             )
             .child(
                 Button::new(SharedString::from(format!("{location}-next")))
                     .ghost()
-                    .when(sidebar, |button| button.small().size(px(28.)))
+                    .when(sidebar, |button| button.small().size(ui_px(28.)))
                     .icon(icon("skip-next"))
                     .text_color(foreground)
-                    .tooltip("Next · Ctrl+Right")
-                    .accessibility_label("Next track")
+                    .tooltip(t("Next · Ctrl+Right"))
+                    .accessibility_label(t("Next track"))
                     .disabled(self.selected.is_none())
                     .on_click(cx.listener(|this, _, _, cx| this.next(false, cx))),
             )
@@ -3059,8 +3131,8 @@ impl Raag {
                     .small()
                     .icon(icon("shuffle"))
                     .selected(self.queue.shuffle)
-                    .tooltip("Shuffle")
-                    .accessibility_label("Shuffle")
+                    .tooltip(t("Shuffle"))
+                    .accessibility_label(t("Shuffle"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.queue.toggle_shuffle();
                         this.right_content.update(cx, |_, cx| cx.notify());
@@ -3074,8 +3146,8 @@ impl Raag {
                     .icon(icon("repeat"))
                     .when(self.queue.repeat == Repeat::One, |button| button.label("1"))
                     .selected(self.queue.repeat != Repeat::Off)
-                    .tooltip(format!("Repeat: {:?}", self.queue.repeat))
-                    .accessibility_label("Cycle repeat mode")
+                    .tooltip(tr!("Repeat: {:?}", self.queue.repeat))
+                    .accessibility_label(t("Cycle repeat mode"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.queue.repeat = this.queue.repeat.cycle();
                         cx.notify();
@@ -3087,8 +3159,8 @@ impl Raag {
                     .small()
                     .icon(icon("lyrics"))
                     .selected(self.panel == Some(Panel::Lyrics))
-                    .tooltip("Lyrics · Ctrl+L")
-                    .accessibility_label("Lyrics")
+                    .tooltip(t("Lyrics · Ctrl+L"))
+                    .accessibility_label(t("Lyrics"))
                     .on_click(cx.listener(|this, _, _, cx| this.navigate(Screen::Lyrics, cx))),
             )
             .when(fullscreen, |div| {
@@ -3097,8 +3169,8 @@ impl Raag {
                         .ghost()
                         .small()
                         .icon(icon("expand"))
-                        .tooltip("Fullscreen · F11")
-                        .accessibility_label("Fullscreen")
+                        .tooltip(t("Fullscreen · F11"))
+                        .accessibility_label(t("Fullscreen"))
                         .on_click(
                             cx.listener(|this, _, window, cx| this.toggle_immersive(window, cx)),
                         ),
@@ -3138,10 +3210,10 @@ impl Raag {
             } else {
                 &self.seek_focus
             })
-            .aria_label("Playback position; arrow keys seek five seconds")
+            .aria_label(t("Playback position; arrow keys seek five seconds"))
             .w_full()
-            .h(px(28.))
-            .px(px(6.))
+            .h(ui_px(28.))
+            .px(ui_px(6.))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _, window, cx| {
@@ -3197,7 +3269,7 @@ impl Raag {
                                 SliderIndicator::new(timeline)
                                     .relative()
                                     .w_full()
-                                    .h(px(4.))
+                                    .h(ui_px(4.))
                                     .rounded_full()
                                     .bg(if self.immersive {
                                         foreground.opacity(0.20)
@@ -3221,9 +3293,9 @@ impl Raag {
                                             .disabled(disabled)
                                             .absolute()
                                             .left(relative(fraction))
-                                            .top(px(-10.))
-                                            .ml(px(-12.))
-                                            .size(px(24.))
+                                            .top(ui_px(-10.))
+                                            .ml(ui_px(-12.))
+                                            .size(ui_px(24.))
                                             .flex()
                                             .items_center()
                                             .justify_center()
@@ -3287,7 +3359,7 @@ impl Raag {
     fn progress(&self, _: &mut Context<Self>) -> AnyElement {
         self.mini_progress
             .clone()
-            .cached(StyleRefinement::default().w_full().h(px(46.)))
+            .cached(StyleRefinement::default().w_full().h(ui_px(46.)))
             .into_any_element()
     }
     fn progress_content(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -3302,7 +3374,7 @@ impl Raag {
                     .flex()
                     .justify_between()
                     .text_xs()
-                    .px(px(6.))
+                    .px(ui_px(6.))
                     .text_color(if self.immersive {
                         rgb(0xffffff).opacity(0.65).into()
                     } else {
@@ -3362,14 +3434,14 @@ impl Raag {
                     ChromePart::Transport,
                     StyleRefinement::default()
                         .w(px(40. + 5.5 * f32::from(window.rem_size())))
-                        .h(px(40.)),
+                        .h(ui_px(40.)),
                 ),
             )
             .child(
                 div().flex().items_center().flex_1().min_w_0().child(
                     self.playback_progress
                         .clone()
-                        .cached(StyleRefinement::default().w_full().h(px(28.))),
+                        .cached(StyleRefinement::default().w_full().h(ui_px(28.))),
                 ),
             )
             .child(
@@ -3404,12 +3476,12 @@ impl Raag {
             .pb_3()
             .child(self.chrome_view(
                 ChromePart::Identity,
-                StyleRefinement::default().w_full().h(px(52.)),
+                StyleRefinement::default().w_full().h(ui_px(52.)),
             ))
             .child(
                 self.playback_progress
                     .clone()
-                    .cached(StyleRefinement::default().w_full().h(px(28.))),
+                    .cached(StyleRefinement::default().w_full().h(ui_px(28.))),
             )
             .child(
                 div()
@@ -3417,14 +3489,14 @@ impl Raag {
                     .items_center()
                     .justify_between()
                     .w_full()
-                    .h(px(28.))
+                    .h(ui_px(28.))
                     .child(self.chrome_view(
                         ChromePart::Transport,
-                        StyleRefinement::default().w(px(92.)).h(px(28.)),
+                        StyleRefinement::default().w(ui_px(92.)).h(ui_px(28.)),
                     ))
                     .child(self.chrome_view(
                         ChromePart::Actions,
-                        StyleRefinement::default().size(px(28.)),
+                        StyleRefinement::default().size(ui_px(28.)),
                     )),
             )
             .into_any_element()
@@ -3444,7 +3516,7 @@ impl Raag {
             })
             .min_w_0()
             .h_full()
-            .accessibility_label("Open now playing")
+            .accessibility_label(t("Open now playing"))
             .child(
                 div()
                     .size(rems(2.75))
@@ -3465,10 +3537,10 @@ impl Raag {
             return Button::new("sidebar-queue")
                 .ghost()
                 .small()
-                .size(px(28.))
+                .size(ui_px(28.))
                 .icon(icon("list"))
-                .tooltip("Queue")
-                .accessibility_label("Queue")
+                .tooltip(t("Queue"))
+                .accessibility_label(t("Queue"))
                 .selected(self.panel == Some(Panel::Queue))
                 .on_click(cx.listener(|this, _, _, cx| this.toggle_panel(Panel::Queue, cx)))
                 .into_any_element();
@@ -3489,8 +3561,8 @@ impl Raag {
                     } else {
                         "sound-off"
                     }))
-                    .tooltip("Mute")
-                    .accessibility_label("Mute")
+                    .tooltip(t("Mute"))
+                    .accessibility_label(t("Mute"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         if this.library.volume > 0. {
                             this.muted_volume = this.library.volume;
@@ -3516,8 +3588,8 @@ impl Raag {
                     .ghost()
                     .small()
                     .icon(icon("list"))
-                    .tooltip("Queue")
-                    .accessibility_label("Queue")
+                    .tooltip(t("Queue"))
+                    .accessibility_label(t("Queue"))
                     .selected(self.panel == Some(Panel::Queue))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_panel(Panel::Queue, cx))),
             )
@@ -3528,8 +3600,8 @@ impl Raag {
                         .ghost()
                         .small()
                         .icon(icon("expand"))
-                        .tooltip("Fullscreen player · F11")
-                        .accessibility_label("Fullscreen player")
+                        .tooltip(t("Fullscreen player · F11"))
+                        .accessibility_label(t("Fullscreen player"))
                         .on_click(
                             cx.listener(|this, _, window, cx| this.toggle_immersive(window, cx)),
                         ),
@@ -3549,7 +3621,7 @@ impl Raag {
                     let subscription = cx.observe(&volume, |_, _, cx| cx.notify());
                     cx.on_release(move |_, _| drop(subscription)).detach();
                     gpui_kit::component::tooltip::Tooltip::element(move |_, cx| {
-                        div().child(format!("Volume: {:.0}%", volume.read(cx).value().start()))
+                        div().child(tr!("Volume: {:.0}%", volume.read(cx).value().start()))
                     })
                 })
                 .into()
@@ -3589,11 +3661,17 @@ impl Raag {
                 .is_some_and(|t| t.kind == ItemKind::Album);
         let row = gpui_kit::div()
             .id(SharedString::from(format!("song-row-{}-{ix}", track.id)))
+            .when(self.browse_filter.is_empty() && self.browse_sort == 0 && !self.selecting && (queued || matches!(&self.screen, Screen::Collection(id, _, true) if self.library.playlists.iter().any(|p| p.id == *id && p.smart.is_none())) || matches!(self.screen, Screen::Collection(_, _, false)) && self.page.editable), |row| {
+                let screen = self.screen.clone();
+                row.on_drag(TrackDrag { track: track.clone(), screen: screen.clone(), index: ix }, |drag, _, _, cx| cx.new(|_| DragPreview(drag.track.title.clone())))
+                    .drag_over::<TrackDrag>(|style, _, _, cx| style.border_t_2().border_color(cx.theme().primary))
+                    .on_drop(cx.listener(move |this, drag: &TrackDrag, _, cx| this.move_track_to(drag, ix, &screen, cx)))
+            })
             .hover(|row| row.bg(cx.theme().muted))
             .flex()
             .items_center()
             .gap_3()
-            .h(px(if collection { 58. } else { 64. }))
+            .h(ui_px(if collection { 58. } else { 64. }))
             .w_full()
             .min_w_0()
             .flex_shrink_0()
@@ -3615,7 +3693,7 @@ impl Raag {
                         } else {
                             "□"
                         })
-                        .accessibility_label(format!("Select {}", track.title))
+                        .accessibility_label(tr!("Select {}", track.title))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if !this.selected_rows.remove(&key) {
                                 this.selected_rows.insert(key.clone());
@@ -3654,7 +3732,7 @@ impl Raag {
                         .justify_start()
                         .accessibility_label(format!(
                             "{} {}",
-                            if track.playable() { "Play" } else { "Open" },
+                            if track.playable() { t("Play") } else { t("Open") },
                             track.title
                         ))
                         .child(
@@ -3671,7 +3749,7 @@ impl Raag {
                                         .flex_col()
                                         .flex_1()
                                         .min_w_0()
-                                        .gap(px(2.))
+                                        .gap(ui_px(2.))
                                         .text_left()
                                         .child(
                                             gpui_kit::div()
@@ -3751,7 +3829,15 @@ impl Raag {
         let owner = cx.weak_entity();
         let track = track.clone();
         let playlist = match &self.screen {
-            Screen::Collection(id, _, true) => Some((id.clone(), false)),
+            Screen::Collection(id, _, true)
+                if self
+                    .library
+                    .playlists
+                    .iter()
+                    .any(|p| p.id == *id && p.smart.is_none()) =>
+            {
+                Some((id.clone(), false))
+            }
             Screen::Collection(id, _, false)
                 if self.account_collection_key().is_some() && self.page.editable =>
             {
@@ -3764,20 +3850,20 @@ impl Raag {
             .ghost()
             .small()
             .icon(icon("more"))
-            .tooltip("More song actions")
-            .accessibility_label("More song actions")
+            .tooltip(t("More song actions"))
+            .accessibility_label(t("More song actions"))
             .dropdown_menu_with_anchor(Anchor::TopRight, move |mut menu, _window, _cx| {
                 let commands = if queued {
                     vec![
-                        ("Move up", 3, ix == 0),
-                        ("Move down", 4, last),
-                        ("Remove from queue", 5, current),
+                        (t("Move up"), 3, ix == 0),
+                        (t("Move down"), 4, last),
+                        (t("Remove from queue"), 5, current),
                     ]
                 } else {
                     vec![
-                        ("Play next", 0, false),
-                        ("Add to queue", 1, false),
-                        ("Start song radio", 2, track.kind != ItemKind::Song),
+                        (t("Play next"), 0, false),
+                        (t("Add to queue"), 1, false),
+                        (t("Start song radio"), 2, track.kind != ItemKind::Song),
                     ]
                 };
                 for (label, command, disabled) in commands {
@@ -3817,7 +3903,8 @@ impl Raag {
                     ));
                 }
                 if playlist.is_some() {
-                    for (label, delta) in [("Move earlier", -1isize), ("Move later", 1isize)] {
+                    for (label, delta) in [(t("Move earlier"), -1isize), (t("Move later"), 1isize)]
+                    {
                         let owner = owner.clone();
                         let track = track.clone();
                         menu = menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
@@ -3830,7 +3917,7 @@ impl Raag {
                     let download_owner = owner.clone();
                     let download_track = track.clone();
                     menu = menu.item(
-                        PopupMenuItem::new("Download for offline")
+                        PopupMenuItem::new(t("Download for offline"))
                             .disabled(track.kind != ItemKind::Song)
                             .on_click(move |_, _, cx| {
                                 let _ = download_owner.update(cx, |this, cx| {
@@ -3840,7 +3927,7 @@ impl Raag {
                     );
                     let hide_owner = owner.clone();
                     let hide_track = track.clone();
-                    menu = menu.item(PopupMenuItem::new("Hide from recommendations").on_click(
+                    menu = menu.item(PopupMenuItem::new(t("Hide from recommendations")).on_click(
                         move |_, _, cx| {
                             let _ = hide_owner.update(cx, |this, cx| {
                                 if !this.library.hidden.contains(&hide_track.id) {
@@ -3855,22 +3942,26 @@ impl Raag {
                     if track.kind == ItemKind::Song {
                         let dislike_owner = owner.clone();
                         let disliked = track.clone();
-                        menu = menu.item(PopupMenuItem::new("Dislike on YouTube Music").on_click(
-                            move |_, _, cx| {
-                                let _ = dislike_owner.update(cx, |this, cx| {
-                                    this.account_edit(
-                                        Edit::Dislike {
-                                            track: disliked.clone(),
-                                        },
-                                        cx,
-                                    )
-                                });
-                            },
-                        ));
+                        menu =
+                            menu.item(PopupMenuItem::new(t("Dislike on YouTube Music")).on_click(
+                                move |_, _, cx| {
+                                    let _ = dislike_owner.update(cx, |this, cx| {
+                                        this.account_edit(
+                                            Edit::Dislike {
+                                                track: disliked.clone(),
+                                            },
+                                            cx,
+                                        )
+                                    });
+                                },
+                            ));
                     }
                     for (label, token) in [
-                        ("Save to YouTube library", track.library_add.clone()),
-                        ("Remove from YouTube library", track.library_remove.clone()),
+                        (t("Save to YouTube library"), track.library_add.clone()),
+                        (
+                            t("Remove from YouTube library"),
+                            track.library_remove.clone(),
+                        ),
                     ] {
                         if let Some(token) = token {
                             let owner = owner.clone();
@@ -3889,7 +3980,7 @@ impl Raag {
                     }
                     let remove_owner = owner.clone();
                     let remove_id = track.id.clone();
-                    menu = menu.item(PopupMenuItem::new("Remove offline download").on_click(
+                    menu = menu.item(PopupMenuItem::new(t("Remove offline download")).on_click(
                         move |_, _, cx| {
                             let _ = remove_owner.update(cx, |this, _| {
                                 this.downloads.submit(crate::downloads::Job::Remove(
@@ -3903,15 +3994,15 @@ impl Raag {
                 if track.playable() {
                     let owner = owner.clone();
                     let track = track.clone();
-                    menu = menu
-                        .separator()
-                        .item(PopupMenuItem::new("Add to playlist…").on_click(
-                            move |_, window, cx| {
-                                let _ = owner.update(cx, |this, cx| {
-                                    this.choose_destination(vec![track.clone()], window, cx)
-                                });
-                            },
-                        ));
+                    menu =
+                        menu.separator()
+                            .item(PopupMenuItem::new(t("Add to playlist…")).on_click(
+                                move |_, window, cx| {
+                                    let _ = owner.update(cx, |this, cx| {
+                                        this.choose_destination(vec![track.clone()], window, cx)
+                                    });
+                                },
+                            ));
                 }
                 if let Some((playlist, remote)) = &playlist {
                     let playlist = playlist.clone();
@@ -3919,7 +4010,7 @@ impl Raag {
                     let track = track.clone();
                     let owner = owner.clone();
                     menu = menu.separator().item(
-                        PopupMenuItem::new("Remove from playlist")
+                        PopupMenuItem::new(t("Remove from playlist"))
                             .disabled(remote && track.set_video_id.is_none())
                             .on_click(move |_, _, cx| {
                                 let _ = owner.update(cx, |this, cx| {
@@ -3948,28 +4039,28 @@ impl Raag {
     fn empty_state(&self, cx: &mut Context<Self>) -> AnyElement {
         let (title, detail) = match self.screen {
             Screen::Liked => (
-                "Keep the songs you love.",
-                "Tap the heart beside a song to find it here.",
+                t("Keep the songs you love."),
+                t("Tap the heart beside a song to find it here."),
             ),
             Screen::Recents => (
-                "Your listening story starts here.",
-                "Play a song and it will appear in your history.",
+                t("Your listening story starts here."),
+                t("Play a song and it will appear in your history."),
             ),
             Screen::Local => (
-                "Your files. Your favourites.",
-                "Add a folder or audio files from this computer.",
+                t("Your files. Your favourites."),
+                t("Add a folder or audio files from this computer."),
             ),
             Screen::Queue => (
-                "A little quiet, for now.",
-                "Play a song or add tracks to the queue.",
+                t("A little quiet, for now."),
+                t("Play a song or add tracks to the queue."),
             ),
             Screen::Search => (
-                "Find your next favourite.",
-                "Search songs, artists, albums and playlists above.",
+                t("Find your next favourite."),
+                t("Search songs, artists, albums and playlists above."),
             ),
             _ => (
-                "There's room for more music.",
-                "Add songs to this collection or sync from your profile menu.",
+                t("There's room for more music."),
+                t("Add songs to this collection or sync from your profile menu."),
             ),
         };
         gpui_kit::div()
@@ -3988,10 +4079,10 @@ impl Raag {
             .child(
                 gpui_kit::div()
                     .text_xl()
-                    .font_family("Manrope")
+                    .font_family(raag::i18n::font())
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(if self.loading {
-                        "Finding your music…"
+                        t("Finding your music…")
                     } else {
                         title
                     }),
@@ -4005,7 +4096,7 @@ impl Raag {
             .when(self.screen == Screen::Local, |div| {
                 div.child(
                     Button::new("import-empty")
-                        .label("Add music…")
+                        .label(t("Add music…"))
                         .icon(icon("plus"))
                         .on_click(cx.listener(|this, _, _, cx| this.import(cx))),
                 )
@@ -4016,7 +4107,7 @@ impl Raag {
         if self.visible.is_empty() {
             if self.screen == Screen::Offline {
                 return div().p_5().text_sm().text_color(cx.theme().muted_foreground)
-                .child("Download a song or collection from its menu. Recently cached songs also appear here.").into_any_element();
+                .child(t("Download a song or collection from its menu. Recently cached songs also appear here.")).into_any_element();
             }
             return self.empty_state(cx);
         }
@@ -4049,16 +4140,22 @@ impl Raag {
             .px_8()
             .pb_6()
             .gap_4()
-            .child(self.title("Play something that stays with you.", cx));
+            .child(self.title(t("Play something that stays with you."), cx));
         body = body.child(self.collection_tools(cx));
         if self.screen == Screen::Offline {
             body = body.child(self.offline_controls(cx));
         }
         let mut actions = gpui_kit::div().flex().items_center().gap_2();
         if self.screen == Screen::Search {
-            for (ix, label) in ["All", "Songs", "Albums", "Artists", "Playlists"]
-                .into_iter()
-                .enumerate()
+            for (ix, label) in [
+                t("All"),
+                t("Songs"),
+                t("Albums"),
+                t("Artists"),
+                t("Playlists"),
+            ]
+            .into_iter()
+            .enumerate()
             {
                 actions = actions.child(
                     Button::new(("filter", ix))
@@ -4094,7 +4191,7 @@ impl Raag {
                     .primary()
                     .map(playback_depth)
                     .icon(icon("play"))
-                    .label("Play")
+                    .label(t("Play"))
                     .disabled(!self.visible.iter().any(|track| track.playable()))
                     .on_click(cx.listener(|this, _, _, cx| {
                         if let Some(track) =
@@ -4110,7 +4207,7 @@ impl Raag {
                 Button::new("add-local")
                     .ghost()
                     .icon(icon("plus"))
-                    .label("Add music…")
+                    .label(t("Add music…"))
                     .on_click(cx.listener(|this, _, _, cx| this.import(cx))),
             );
         }
@@ -4118,7 +4215,7 @@ impl Raag {
             actions = actions.child(
                 Button::new("clear-upcoming")
                     .ghost()
-                    .label("Clear upcoming")
+                    .label(t("Clear upcoming"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.queue.clear_upcoming();
                         this.invalidate_collection();
@@ -4133,7 +4230,7 @@ impl Raag {
             actions = actions.child(
                 Button::new("add-playing")
                     .ghost()
-                    .label("Add playing song")
+                    .label(t("Add playing song"))
                     .disabled(self.selected.is_none())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(track) = this.selected.clone() {
@@ -4155,7 +4252,7 @@ impl Raag {
                 .child(
                     Button::new("rename-playlist")
                         .ghost()
-                        .label("Rename")
+                        .label(t("Rename"))
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.playlist_editor_remote = false;
                             this.editing_playlist = true;
@@ -4171,7 +4268,7 @@ impl Raag {
                 .child(
                     Button::new("export-playlist")
                         .ghost()
-                        .label("Export…")
+                        .label(t("Export…"))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.export_playlist(exported.clone(), cx)
                         })),
@@ -4179,7 +4276,7 @@ impl Raag {
                 .child(
                     Button::new("remove-playlist")
                         .ghost()
-                        .label("Remove…")
+                        .label(t("Remove…"))
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.remove_playlist(removed.clone(), window, cx)
                         })),
@@ -4212,8 +4309,8 @@ impl Raag {
             lyrics = lyrics.child(
                 gpui_kit::div()
                     .text_xl()
-                    .font_family("Manrope")
-                    .child("Finding the words…"),
+                    .font_family(raag::i18n::font())
+                    .child(t("Finding the words…")),
             );
         } else if let Some(error) = &self.lyrics_error {
             lyrics = lyrics.child(
@@ -4222,23 +4319,22 @@ impl Raag {
                     .child(error.clone()),
             );
         } else {
-            let current = self
-                .lyrics
-                .iter()
-                .rposition(|line| line.seconds.is_some_and(|seconds| seconds <= self.position));
+            let current = self.lyrics.iter().rposition(|line| {
+                line.seconds
+                    .is_some_and(|seconds| seconds <= self.lyric_time())
+            });
             for (ix, line) in self.lyrics.iter().enumerate() {
                 let seconds = line.seconds;
                 lyrics = lyrics.child(
-                    Button::new(("line", ix))
-                        .ghost()
+                    content_button(("line", ix))
                         .h_auto()
                         .py_2()
                         .justify_center()
                         .text_center()
                         .w_full()
                         .text_2xl()
-                        .font_family("Manrope")
-                        .label(line.text.clone())
+                        .font_family(raag::i18n::font())
+                        .child(self.lyric_label(line, Some(ix) == current, cx.theme().foreground))
                         .text_color(if Some(ix) == current {
                             cx.theme().foreground
                         } else {
@@ -4246,7 +4342,15 @@ impl Raag {
                         })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(seconds) = seconds {
-                                this.commit_seek(seconds, cx);
+                                this.commit_seek(
+                                    (seconds
+                                        - this
+                                            .selected
+                                            .as_ref()
+                                            .map_or(0., |t| this.library.lyrics.offset(&t.id)))
+                                    .max(0.),
+                                    cx,
+                                );
                             }
                         })),
                 );
@@ -4280,7 +4384,7 @@ impl Raag {
                     .child(
                         gpui_kit::div()
                             .text_2xl()
-                            .font_family("Manrope")
+                            .font_family(raag::i18n::font())
                             .font_weight(FontWeight::BOLD)
                             .child(track.title.clone()),
                     )
@@ -4312,7 +4416,7 @@ impl Raag {
                     .child(
                         div()
                             .text_lg()
-                            .font_family("Manrope")
+                            .font_family(raag::i18n::font())
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(title),
                     )
@@ -4351,7 +4455,7 @@ impl Raag {
                         this.save();
                     }
                     Err(error) => {
-                        this.notice = Some(format!("Could not update startup preference: {error}"))
+                        this.notice = Some(tr!("Could not update startup preference: {error}"))
                     }
                 }
                 this.content_revision += 1;
@@ -4363,9 +4467,9 @@ impl Raag {
     fn settings(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let tray_available = self.system.is_some() && crate::system::hide_supported(window);
         let account = self
-            .settings_section("YouTube Music", "Your account and library", cx)
+            .settings_section("YouTube Music", t("Your account and library"), cx)
             .child(div().text_sm().child(self.auth.account().map_or_else(
-                || "Sign in to bring your playlists and liked songs here.".into(),
+                || t("Sign in to bring your playlists and liked songs here.").into(),
                 |account| format!("{} {}", account.name, account.handle),
             )))
             .child(
@@ -4378,11 +4482,11 @@ impl Raag {
                         Button::new("youtube-sign-in")
                             .primary()
                             .label(if self.auth.busy() {
-                                "Signing in…"
+                                t("Signing in…")
                             } else if self.auth.account().is_some() {
-                                "Switch account"
+                                t("Switch account")
                             } else {
-                                "Sign in to YouTube Music"
+                                t("Sign in to YouTube Music")
                             })
                             .disabled(self.auth.busy())
                             .on_click(cx.listener(|this, _, _, cx| this.sign_in(cx))),
@@ -4391,7 +4495,7 @@ impl Raag {
                         row.child(
                             Button::new("cancel-youtube-login")
                                 .ghost()
-                                .label("Cancel")
+                                .label(t("Cancel"))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.auth.cancel();
                                     this.content_revision += 1;
@@ -4402,7 +4506,7 @@ impl Raag {
                     .child(
                         Button::new("forget-cookies")
                             .ghost()
-                            .label("Sign out")
+                            .label(t("Sign out"))
                             .disabled(
                                 !self.auth.can_sign_out() && self.library.cookies_path.is_empty(),
                             )
@@ -4410,13 +4514,13 @@ impl Raag {
                     ),
             );
         let playback = self
-            .settings_section("Playback", "Make the queue your own", cx)
+            .settings_section(t("Playback"), t("Make the queue your own"), cx)
             .child(
                 div()
                     .flex()
                     .items_center()
                     .gap_4()
-                    .child(div().w_24().text_sm().child("Volume"))
+                    .child(div().w_24().text_sm().child(t("Volume")))
                     .child(
                         div()
                             .flex_1()
@@ -4433,7 +4537,7 @@ impl Raag {
             )
             .child(
                 Switch::new("autoplay-setting")
-                    .label("Continue with similar songs")
+                    .label(t("Continue with similar songs"))
                     .checked(self.library.autoplay)
                     .on_change(cx.listener(|this, value, _, cx| {
                         this.library.autoplay = *value;
@@ -4442,61 +4546,70 @@ impl Raag {
                         cx.notify();
                     })),
             );
-        let system = self.settings_section("System", "Ready when you are", cx)
-            .child(Button::new("register-links").ghost().label("Enable Cassette links").on_click(cx.listener(|this, _, _, cx| this.register_links(cx))))
-            .child(div().text_sm().text_color(cx.theme().muted_foreground).child(if self.media.is_some() { "System media controls are connected." } else { "System media controls are unavailable in this session." }))
-            .child(Switch::new("close-to-tray").label("Keep Cassette in the tray when closing")
+        let system = self.settings_section(t("System"), t("Ready when you are"), cx)
+            .child(Button::new("register-links").ghost().label(t("Enable Cassette links")).on_click(cx.listener(|this, _, _, cx| this.register_links(cx))))
+            .child(div().text_sm().text_color(cx.theme().muted_foreground).child(if self.media.is_some() { t("System media controls are connected.") } else { t("System media controls are unavailable in this session.") }))
+            .child(Switch::new("close-to-tray").label(t("Keep Cassette in the tray when closing"))
                 .checked(self.library.close_to_tray).disabled(!tray_available)
                 .on_change(cx.listener(|this, value, _, cx| {
                     this.library.close_to_tray = *value; this.content_revision += 1; this.save(); cx.notify();
                 })))
-            .child(Switch::new("start-at-login").label("Start with your computer, in the tray")
+            .child(Switch::new("start-at-login").label(t("Start with your computer, in the tray"))
                 .checked(self.library.start_at_login).disabled(!tray_available || self.startup_busy)
                 .on_change(cx.listener(|this, value, _, cx| this.set_start_at_login(*value, cx))))
             .child(div().text_sm().text_color(cx.theme().muted_foreground)
-                .child(if tray_available { "Open the tray menu to return to Cassette or quit completely." }
-                    else { "Tray hiding is unavailable on this desktop. On Linux, use an X11 session with a system tray." }));
+                .child(if tray_available { t("Open the tray menu to return to Cassette or quit completely.") }
+                    else { t("Tray hiding is unavailable on this desktop. On Linux, use an X11 session with a system tray.") }));
         let advanced = div().flex().flex_col().gap_4()
             .child(Button::new("advanced-settings").ghost()
                 .icon(icon(if self.advanced_settings { "nav-arrow-down" } else { "nav-arrow-right" }))
-                .label("Advanced")
+                .label(t("Advanced"))
                 .on_click(cx.listener(|this, _, _, cx| { this.advanced_settings = !this.advanced_settings; this.content_revision += 1; cx.notify(); })))
             .when(self.advanced_settings, |section| section.child(
                 div().flex().flex_col().gap_4().pl_3()
-                    .child(div().text_sm().text_color(cx.theme().muted_foreground).child("Playback tools are detected automatically. Change paths only when using a custom installation."))
-                    .child(div().flex().flex_col().gap_2().text_sm().child("mpv executable").child(Input::new(&self.mpv_path)))
-                    .child(div().flex().flex_col().gap_2().text_sm().child("yt-dlp executable").child(Input::new(&self.ytdlp_path)))
-                    .child(div().child(Button::new("save-tools").label("Apply paths").on_click(cx.listener(|this, _, _, cx| {
+                    .child(div().text_sm().text_color(cx.theme().muted_foreground).child(t("Playback tools are detected automatically. Change paths only when using a custom installation.")))
+                    .child(div().flex().flex_col().gap_2().text_sm().child(t("mpv executable")).child(Input::new(&self.mpv_path)))
+                    .child(div().flex().flex_col().gap_2().text_sm().child(t("yt-dlp executable")).child(Input::new(&self.ytdlp_path)))
+                    .child(div().child(Button::new("save-tools").label(t("Apply paths")).on_click(cx.listener(|this, _, _, cx| {
                         this.library.mpv_path = this.mpv_path.read(cx).value().to_string();
                         this.library.ytdlp_path = this.ytdlp_path.read(cx).value().to_string();
                         this.reset_player(cx); this.save(); this.content_revision += 1;
-                        this.notice = Some("Playback paths updated".into()); cx.notify();
+                        this.notice = Some(t("Playback paths updated").into()); cx.notify();
                     }))))
                     .child(div().flex().flex_wrap().gap_2()
-                        .child(Button::new("choose-cookies").ghost().label("Import cookies…").disabled(self.auth.busy())
+                        .child(Button::new("choose-cookies").ghost().label(t("Import cookies…")).disabled(self.auth.busy())
                             .on_click(cx.listener(|this, _, _, cx| this.choose_cookies(cx))))
-                        .child(Button::new("cookie-help").ghost().label("Cookie import help").on_click(|_, _, cx| cx.open_url("https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies"))))));
+                        .child(Button::new("cookie-help").ghost().label(t("Cookie import help")).on_click(|_, _, cx| cx.open_url("https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies"))))));
         let content = div()
             .flex()
             .flex_col()
             .gap_8()
             .w_full()
             .max_w(rems(55.))
-            .child(self.title("Make yourself at home.", cx).mb_0())
+            .child(self.title(t("Make yourself at home."), cx).mb_0())
             .child(self.appearance_settings(window, cx))
+            .child(self.localization_settings(cx))
+            .child(
+                self.settings_section(t("Lyrics"), t("Providers, timing and text"), cx)
+                    .child(self.lyrics_preferences(cx)),
+            )
             .child(playback)
             .child(
-                self.settings_section("Sound", "Output, tone and transitions", cx)
+                self.settings_section(t("Sound"), t("Output, tone and transitions"), cx)
                     .child(self.audio_controls(window, cx)),
             )
             .child(
-                self.settings_section("Discovery", "Recommendations and listening history", cx)
-                    .child(self.discovery_controls(cx)),
+                self.settings_section(
+                    t("Discovery"),
+                    t("Recommendations and listening history"),
+                    cx,
+                )
+                .child(self.discovery_controls(cx)),
             )
             .child(
                 self.settings_section(
-                    "Offline storage",
-                    "Pinned downloads and temporary cache",
+                    t("Offline storage"),
+                    t("Pinned downloads and temporary cache"),
                     cx,
                 )
                 .child(self.offline_controls(cx)),
@@ -4525,10 +4638,9 @@ impl Raag {
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(concat!(
-                                "Version ",
-                                env!("CARGO_PKG_VERSION"),
-                                " · Built with Rust and GPUI · Icons by Iconoir"
+                            .child(tr!(
+                                "Version {} · Built with Rust and GPUI · Icons by Iconoir",
+                                env!("CARGO_PKG_VERSION")
                             )),
                     ),
             );
@@ -4588,9 +4700,17 @@ impl Render for Raag {
         };
         let running = self.shell_motion.sample(
             [
-                if expanded { 256. } else { 0. },
+                if expanded {
+                    256. * raag::i18n::scale()
+                } else {
+                    0.
+                },
                 right_target,
-                if bottom { 80. } else { 0. },
+                if bottom {
+                    80. * raag::i18n::scale()
+                } else {
+                    0.
+                },
             ],
             cx.reduce_motion() || !window.is_window_active(),
             Instant::now(),
@@ -4757,7 +4877,9 @@ impl Render for Raag {
                             .h_full()
                             .flex_shrink_0()
                             .overflow_hidden()
-                            .mr(px(12. * (left_width / 256.).clamp(0., 1.)))
+                            .mr(px(
+                                12. * (left_width / (256. * raag::i18n::scale())).clamp(0., 1.)
+                            ))
                             .min_w_0()
                             .w(px(left_width))
                             .when(left_width > 0., |pane| {
@@ -4765,7 +4887,7 @@ impl Render for Raag {
                                     div()
                                         .flex()
                                         .flex_col()
-                                        .w(px(256.))
+                                        .w(ui_px(256.))
                                         .h_full()
                                         .min_h_0()
                                         .child(navigation)
@@ -4794,7 +4916,7 @@ impl Render for Raag {
                                     .w(px(self.content_width(window)))
                                     .child(self.chrome_view(
                                         ChromePart::Toolbar,
-                                        StyleRefinement::default().w_full().h(px(72.)),
+                                        StyleRefinement::default().w_full().h(ui_px(72.)),
                                     ))
                                     .child(
                                         gpui_kit::div()
@@ -4816,7 +4938,7 @@ impl Render for Raag {
                                                             .top_0()
                                                             .left_0()
                                                             .right_0()
-                                                            .h(px(28.))
+                                                            .h(ui_px(28.))
                                                             .bg(linear_gradient(
                                                                 180.,
                                                                 linear_color_stop(
@@ -4839,7 +4961,7 @@ impl Render for Raag {
                                                         .absolute()
                                                         .bottom_4()
                                                         .left_8()
-                                                        .max_w(px(400.))
+                                                        .max_w(ui_px(400.))
                                                         .mr_8()
                                                         .border_1()
                                                         .border_color(cx.theme().border)
@@ -4864,10 +4986,10 @@ impl Render for Raag {
                                                                 .ghost()
                                                                 .small()
                                                                 .icon(icon("xmark"))
-                                                                .tooltip("Dismiss")
-                                                                .accessibility_label(
+                                                                .tooltip(t("Dismiss"))
+                                                                .accessibility_label(t(t(
                                                                     "Dismiss message",
-                                                                )
+                                                                )))
                                                                 .on_click(cx.listener(
                                                                     |this, _, _, cx| {
                                                                         this.notice = None;
@@ -4912,7 +5034,7 @@ impl Render for Raag {
                     .when(bottom && player_height > 0.1, |div| {
                         div.child(
                             gpui_kit::div()
-                                .h(px(80.))
+                                .h(ui_px(80.))
                                 .pt_2()
                                 .child(self.bottom_player(window, cx)),
                         )

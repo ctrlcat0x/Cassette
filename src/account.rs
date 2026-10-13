@@ -27,12 +27,12 @@ impl Section {
     ];
     pub fn title(self) -> &'static str {
         match self {
-            Self::Playlists => "Playlists",
-            Self::Liked => "Liked songs",
-            Self::History => "Recently played",
-            Self::Albums => "Albums",
-            Self::Artists => "Artists",
-            Self::Songs => "Saved songs",
+            Self::Playlists => crate::i18n::t("Playlists"),
+            Self::Liked => crate::i18n::t("Liked songs"),
+            Self::History => crate::i18n::t("Recently played"),
+            Self::Albums => crate::i18n::t("Albums"),
+            Self::Artists => crate::i18n::t("Artists"),
+            Self::Songs => crate::i18n::t("Saved songs"),
         }
     }
     pub fn browse_id(self) -> &'static str {

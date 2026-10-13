@@ -52,7 +52,7 @@ enum ChromeState {
     Background(u64, u64, bool, (u32, u32)),
     Title(u64, (u64, u64)),
     Buttons(bool, bool, bool, bool, Repeat),
-    Lyrics(u64, u64, bool, Option<usize>, bool),
+    Lyrics(u64, u64, bool, Option<usize>, Option<usize>, bool),
 }
 
 pub(super) struct ChromePane {
@@ -184,6 +184,7 @@ impl Raag {
                     self.lyrics_revision,
                     self.lyrics_loading,
                     self.lyrics_active,
+                    self.lyrics_word,
                     self.lyrics_follow,
                 ),
             };
