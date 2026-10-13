@@ -398,6 +398,7 @@ impl Backend {
                     continue;
                 }
                 if !fresh
+                    && !has_override
                     && track.kind != ItemKind::Local
                     && let Ok(lyrics) = &result
                 {

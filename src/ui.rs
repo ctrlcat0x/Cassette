@@ -104,7 +104,10 @@ actions!(
         ShowRecent,
         SignIn,
         SignOut,
-        CancelSignIn
+        CancelSignIn,
+        ZoomIn,
+        ZoomOut,
+        ResetZoom
     ]
 );
 pub fn bind_keys(cx: &mut App) {
@@ -114,6 +117,10 @@ pub fn bind_keys(cx: &mut App) {
         "ctrl"
     };
     cx.bind_keys([
+        KeyBinding::new(&format!("{modifier}-="), ZoomIn, Some("Raag")),
+        KeyBinding::new(&format!("{modifier}-+"), ZoomIn, Some("Raag")),
+        KeyBinding::new(&format!("{modifier}--"), ZoomOut, Some("Raag")),
+        KeyBinding::new(&format!("{modifier}-0"), ResetZoom, Some("Raag")),
         KeyBinding::new("space", TogglePlayback, Some("Raag && !Input")),
         KeyBinding::new(&format!("{modifier}-right"), NextTrack, Some("Raag")),
         KeyBinding::new(&format!("{modifier}-left"), PreviousTrack, Some("Raag")),
@@ -159,7 +166,7 @@ impl Screen {
             Self::Local => t("Local files"),
             Self::Search => t("Search"),
             Self::Collection(_, title, _) => title,
-            Self::Discover(_, _, title) => title,
+            Self::Discover(_, _, title) => t(title),
             Self::Radio(_) => t("Song radio"),
             Self::PlaylistPicker => t("Add to playlist"),
             Self::Queue => t("Next up"),
@@ -313,6 +320,7 @@ pub struct Raag {
     volume: Entity<SliderState>,
     volume_scroll: crate::motion::VolumeScroll,
     library: Library,
+    sidebar_visible: bool,
     system: Option<crate::system::System>,
     media: Option<crate::media::Media>,
     downloads: crate::downloads::Downloads,
@@ -665,6 +673,7 @@ impl Raag {
             panel: None,
             last_panel: None,
             shell_motion: crate::motion::ShellMotion::new(library.sidebar),
+            sidebar_visible: library.sidebar,
             shell_frame_pending: false,
             panel_scroll: crate::motion::SmoothScroll::new(),
             sidebar_scroll: crate::motion::SmoothScroll::new(),
@@ -1808,6 +1817,7 @@ impl Raag {
             self.editing_playlist = false;
             self.playlist_editor_remote = false;
             self.editing_description = false;
+            self.editing_smart = None;
             self.refresh_visible();
             fetch_artwork(
                 self.visible.iter().take(9).cloned().collect(),
@@ -2111,11 +2121,16 @@ impl Raag {
         self.player.command(PlayerCommand::Seek(target));
         cx.notify();
     }
-    fn sidebar_expanded(&self, _: &Window) -> bool {
+    fn sidebar_expanded(&self, window: &Window) -> bool {
         self.library.sidebar
+            && f32::from(window.bounds().size.width) / self.library.ui_scale
+                >= if self.panel.is_some() { 900. } else { 760. }
     }
     fn right_sidebar_rems(&self, window: &Window) -> f32 {
-        let width = f32::from(window.bounds().size.width);
+        let width = f32::from(window.bounds().size.width) / self.library.ui_scale;
+        if width < 750. {
+            return 12.;
+        }
         if width >= 1500. {
             22.
         } else if width >= 1200. {
@@ -2133,7 +2148,11 @@ impl Raag {
     fn layout_width(&self, window: &Window) -> f32 {
         let right =
             f32::from(rems(self.right_sidebar_rems(window)).to_pixels(window.rem_size())) + 12.;
-        (f32::from(window.bounds().size.width) - 24. - 268. - right).max(280.)
+        (f32::from(window.bounds().size.width) / self.library.ui_scale
+            - 24.
+            - 268.
+            - right / self.library.ui_scale)
+            .max(280.)
     }
     fn import(&mut self, cx: &mut Context<Self>) {
         let prompt = cx.prompt_for_paths(PathPromptOptions {
@@ -2256,6 +2275,13 @@ impl Raag {
         };
         match result {
             Ok(id) => {
+                self.library
+                    .playlist_metadata
+                    .entry(id.clone())
+                    .or_insert_with(|| raag::organization::PlaylistMetadata {
+                        folder: self.library.active_folder.clone(),
+                        cover: None,
+                    });
                 self.navigation_revision = self.navigation_revision.wrapping_add(1);
                 self.save();
                 self.editing_playlist = false;
@@ -3047,7 +3073,7 @@ impl Raag {
             .on_click(cx.listener(move |this, _, _, cx| this.like(track.clone(), cx)))
     }
     fn basic_controls(&self, location: &'static str, cx: &mut Context<Self>) -> AnyElement {
-        let sidebar = location == "bottom" && self.library.sidebar;
+        let sidebar = location == "bottom" && self.sidebar_visible;
         let foreground: Hsla = if self.immersive {
             rgb(0xffffff).into()
         } else {
@@ -3412,7 +3438,8 @@ impl Raag {
             .into_any_element()
     }
     fn bottom_player(&self, window: &Window, _: &mut Context<Self>) -> AnyElement {
-        let compact = f32::from(window.bounds().size.width) < 1100.;
+        let logical_width = f32::from(window.bounds().size.width) / self.library.ui_scale;
+        let compact = logical_width < 1100.;
         div()
             .id("bottom-player")
             .flex()
@@ -3425,7 +3452,13 @@ impl Raag {
                 self.chrome_view(
                     ChromePart::Identity,
                     StyleRefinement::default()
-                        .w(rems(if compact { 12. } else { 15. }))
+                        .w(rems(if logical_width < 700. {
+                            3.
+                        } else if compact {
+                            12.
+                        } else {
+                            15.
+                        }))
                         .h(rems(4.)),
                 ),
             )
@@ -3505,14 +3538,23 @@ impl Raag {
         let Some(track) = &self.selected else {
             return div().into_any_element();
         };
-        let compact = f32::from(window.bounds().size.width) < 1100.;
+        let logical_width = f32::from(window.bounds().size.width) / self.library.ui_scale;
+        let compact = logical_width < 1100.;
         content_button("bottom-identity")
             .flex()
             .items_center()
             .gap_3()
-            .when(self.library.sidebar, |identity| identity.w_full())
-            .when(!self.library.sidebar, |identity| {
-                identity.w(rems(if compact { 12. } else { 15. }))
+            .when(self.sidebar_visible, |identity| identity.w_full())
+            .when(!self.sidebar_visible, |identity| {
+                identity
+                    .w(rems(if logical_width < 700. {
+                        3.
+                    } else if compact {
+                        12.
+                    } else {
+                        15.
+                    }))
+                    .overflow_hidden()
             })
             .min_w_0()
             .h_full()
@@ -3533,7 +3575,7 @@ impl Raag {
         let Some(track) = &self.selected else {
             return div().into_any_element();
         };
-        if self.library.sidebar {
+        if self.sidebar_visible {
             return Button::new("sidebar-queue")
                 .ghost()
                 .small()
@@ -3545,7 +3587,7 @@ impl Raag {
                 .on_click(cx.listener(|this, _, _, cx| this.toggle_panel(Panel::Queue, cx)))
                 .into_any_element();
         }
-        let compact = f32::from(window.bounds().size.width) < 1100.;
+        let compact = f32::from(window.bounds().size.width) / self.library.ui_scale < 1100.;
         div()
             .flex()
             .items_center()
@@ -3912,6 +3954,14 @@ impl Raag {
                                 .update(cx, |this, cx| this.move_playlist_track(&track, delta, cx));
                         }));
                     }
+                }
+                if track.kind == ItemKind::Song {
+                    let url = raag::links::Link::Track(track.id.clone()).public_url();
+                    menu = menu.item(PopupMenuItem::new(t("Copy music link")).on_click(
+                        move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
+                        },
+                    ));
                 }
                 if track.playable() {
                     let download_owner = owner.clone();
@@ -4668,6 +4718,7 @@ fn self_refresh(this: &mut Raag, cx: &mut Context<Raag>) {
 
 impl Render for Raag {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sidebar_visible = self.sidebar_expanded(window);
         let _domain = raag::diagnostics::enter(raag::diagnostics::Domain::Ui);
         let view = cx.entity_id();
         self.images.update(cx, |cache, _| cache.begin_view(view));
@@ -4777,6 +4828,15 @@ impl Render for Raag {
             .p_3()
             .pt_9()
             .pb_2()
+            .on_action(cx.listener(|this, _: &ZoomIn, window, cx| {
+                this.set_ui_scale(this.library.ui_scale + 0.1, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ZoomOut, window, cx| {
+                this.set_ui_scale(this.library.ui_scale - 0.1, window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &ResetZoom, window, cx| this.set_ui_scale(1., window, cx)),
+            )
             .on_action(cx.listener(|this, _: &TogglePlayback, _, cx| this.toggle_playback(cx)))
             .on_action(cx.listener(|this, _: &NextTrack, _, cx| this.next(false, cx)))
             .on_action(cx.listener(|this, _: &PreviousTrack, _, cx| this.previous(cx)))

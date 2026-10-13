@@ -63,7 +63,11 @@ impl Raag {
                     .text_size(px((width * 0.12).clamp(48., 180.)))
                     .line_height(relative(0.94))
                     .font_weight(FontWeight::EXTRA_BOLD)
-                    .font_family("Segoe UI Black")
+                    .font_family(if self.library.language == "hi" {
+                        raag::i18n::font()
+                    } else {
+                        "Segoe UI Black"
+                    })
                     .text_color(yellow)
                     .child(if width < 520. {
                         t("YOUR\nCHARTS")

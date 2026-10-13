@@ -72,10 +72,11 @@ def windows_vulkan(directory):
                 break
     if not cmake:
         raise RuntimeError("CMake is required to bundle the Vulkan Loader")
+    os.environ["PATH"] = str(Path(cmake).parent) + os.pathsep + os.environ.get("PATH", "")
     build = directory / "vulkan-build"
     install = directory / "vulkan-install"
     subprocess.run([cmake, "-S", str(source), "-B", str(build), "-A", "x64",
-                    "-DUPDATE_DEPS=ON", "-DBUILD_TESTS=OFF", "-DBUILD_WERROR=OFF",
+                    "-DUPDATE_DEPS=ON", "-DBUILD_TESTS=OFF", "-DBUILD_WERROR=OFF", "-DCMAKE_BUILD_TYPE=Release",
                     "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
                     "-DCMAKE_INSTALL_PREFIX=" + str(install)], check=True)
     subprocess.run([cmake, "--build", str(build), "--config", "Release", "--target", "install", "--parallel", "2"], check=True)

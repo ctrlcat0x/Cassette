@@ -301,25 +301,30 @@ impl Raag {
         .hover(|button| button.bg(cx.theme().muted))
         .focus_visible(|button| button.bg(cx.theme().muted).text_color(cx.theme().primary))
         .accessibility_label(tr!("Open {}", entry.track.title))
-        .when(entry.track.kind == ItemKind::Playlist, |button| {
-            let id = entry
-                .track
-                .id
-                .strip_prefix("VL")
-                .unwrap_or(&entry.track.id)
-                .to_owned();
-            let target = id.clone();
-            button
-                .on_drag(PlaylistDrag(id), |drag, _, _, cx| {
-                    cx.new(|_| DragPreview(drag.0.clone()))
-                })
-                .drag_over::<PlaylistDrag>(|s, _, _, cx| {
-                    s.border_t_2().border_color(cx.theme().primary)
-                })
-                .on_drop(cx.listener(move |this, drag: &PlaylistDrag, _, cx| {
-                    this.reorder_playlist(&drag.0, &target, cx)
-                }))
-        })
+        .when(
+            entry.track.kind == ItemKind::Playlist
+                && self.browse_sort == 0
+                && self.browse_filter.is_empty(),
+            |button| {
+                let id = entry
+                    .track
+                    .id
+                    .strip_prefix("VL")
+                    .unwrap_or(&entry.track.id)
+                    .to_owned();
+                let target = id.clone();
+                button
+                    .on_drag(PlaylistDrag(id), |drag, _, _, cx| {
+                        cx.new(|_| DragPreview(drag.0.clone()))
+                    })
+                    .drag_over::<PlaylistDrag>(|s, _, _, cx| {
+                        s.border_t_2().border_color(cx.theme().primary)
+                    })
+                    .on_drop(cx.listener(move |this, drag: &PlaylistDrag, _, cx| {
+                        this.reorder_playlist(&drag.0, &target, cx)
+                    }))
+            },
+        )
         .child(
             div()
                 .size(px(extent - 16.))

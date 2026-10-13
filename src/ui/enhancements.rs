@@ -26,6 +26,14 @@ impl Render for DragPreview {
 }
 
 impl Raag {
+    pub(super) fn set_ui_scale(&mut self, scale: f32, window: &mut Window, cx: &mut Context<Self>) {
+        self.library.ui_scale = (scale * 100.).round().clamp(75., 175.) / 100.;
+        raag::i18n::set_scale(self.library.ui_scale);
+        window.set_rem_size(px(16. * self.library.ui_scale));
+        self.lyrics_geometry = None;
+        self.apply_appearance(cx);
+        self.save();
+    }
     pub(super) fn localization_settings(&self, cx: &mut Context<Self>) -> Div {
         self.settings_section(
             t("Language and size"),
@@ -56,6 +64,8 @@ impl Raag {
                                     (&this.smart_artist, "Any artist"),
                                     (&this.smart_album, "Any album"),
                                     (&this.browse_query, "Filter this collection…"),
+                                    (&this.mpv_path, "Automatic (mpv on PATH or bundled)"),
+                                    (&this.ytdlp_path, "Automatic (yt-dlp on PATH or bundled)"),
                                 ] {
                                     input.update(cx, |input, cx| {
                                         input.set_placeholder(t(placeholder), window, cx)
@@ -78,12 +88,7 @@ impl Raag {
                             .label(format!("{:.0}%", scale * 100.))
                             .selected((self.library.ui_scale - scale).abs() < 0.01)
                             .on_click(cx.listener(move |this, _, window, cx| {
-                                this.library.ui_scale = scale;
-                                raag::i18n::set_scale(scale);
-                                window.set_rem_size(px(16. * scale));
-                                this.lyrics_geometry = None;
-                                this.apply_appearance(cx);
-                                this.save();
+                                this.set_ui_scale(scale, window, cx);
                             }))
                     }),
             ),

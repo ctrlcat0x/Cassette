@@ -213,6 +213,15 @@ impl Raag {
             .bg(rgb(ambient))
             .text_color(white)
             .line_height(relative(1.4))
+            .on_action(cx.listener(|this, _: &ZoomIn, window, cx| {
+                this.set_ui_scale(this.library.ui_scale + 0.1, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ZoomOut, window, cx| {
+                this.set_ui_scale(this.library.ui_scale - 0.1, window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &ResetZoom, window, cx| this.set_ui_scale(1., window, cx)),
+            )
             .on_action(cx.listener(|this, _: &TogglePlayback, _, cx| this.toggle_playback(cx)))
             .on_action(cx.listener(|this, _: &NextTrack, _, cx| this.next(false, cx)))
             .on_action(cx.listener(|this, _: &PreviousTrack, _, cx| this.previous(cx)))

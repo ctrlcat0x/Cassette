@@ -575,6 +575,14 @@ impl Raag {
                         })),
                 )
             })
+            .when(matches!(self.screen, Screen::Collection(_, _, false)), |body| {
+                let Screen::Collection(id, _, _) = &self.screen else { return body; };
+                let link = if id.starts_with("MPRE") { raag::links::Link::Album(id.clone()) }
+                    else if id.starts_with("UC") { raag::links::Link::Artist(id.clone()) }
+                    else { raag::links::Link::Playlist(id.strip_prefix("VL").unwrap_or(id).to_owned()) };
+                body.child(Button::new("copy-collection-link").ghost().label(t("Copy music link"))
+                    .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(link.public_url()))))
+            })
             .child(self.playlist_organization_tools(cx))
     }
     fn remove_selected(&mut self, cx: &mut Context<Self>) {

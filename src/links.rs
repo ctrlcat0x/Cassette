@@ -127,6 +127,15 @@ impl Link {
         };
         format!("cassette://{kind}/{id}")
     }
+    pub fn public_url(&self) -> String {
+        match self {
+            Self::Track(id) => format!("https://music.youtube.com/watch?v={id}"),
+            Self::Playlist(id) => format!("https://music.youtube.com/playlist?list={id}"),
+            Self::Album(id) => format!("https://music.youtube.com/browse/{id}"),
+            Self::Artist(id) => format!("https://music.youtube.com/channel/{id}"),
+            Self::Spotify { .. } => self.url(),
+        }
+    }
 }
 
 pub struct ResolvedSpotify {

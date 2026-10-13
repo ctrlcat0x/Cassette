@@ -36,7 +36,7 @@ enum ChromeState {
         syncing: bool,
         history: (bool, bool),
     },
-    Identity(u64, u64, bool, bool),
+    Identity(u64, u64, bool, bool, bool),
     Transport(bool, bool, bool, bool, bool),
     Actions(
         u64,
@@ -109,7 +109,7 @@ impl Raag {
     }
     pub(super) fn refresh_chrome(&self, window: &mut Window, cx: &mut Context<Self>) {
         let generation = self.player.generation();
-        let compact = f32::from(window.bounds().size.width) < 1100.;
+        let compact = f32::from(window.bounds().size.width) / self.library.ui_scale < 1100.;
         for (index, part) in PARTS.iter().enumerate() {
             let immersive_part = index >= ChromePart::ImmersiveArt as usize;
             if immersive_part != self.immersive
@@ -142,14 +142,15 @@ impl Raag {
                     generation,
                     self.artwork_revision,
                     compact,
-                    self.library.sidebar,
+                    self.sidebar_visible,
+                    f32::from(window.bounds().size.width) / self.library.ui_scale < 700.,
                 ),
                 ChromePart::Transport => ChromeState::Transport(
                     self.selected.is_some(),
                     self.playing,
                     self.buffering,
                     self.failed,
-                    self.library.sidebar,
+                    self.sidebar_visible,
                 ),
                 ChromePart::Actions => ChromeState::Actions(
                     generation,
@@ -159,7 +160,7 @@ impl Raag {
                     self.queue.repeat,
                     self.panel,
                     compact,
-                    self.library.sidebar,
+                    self.sidebar_visible,
                 ),
                 ChromePart::ImmersiveArt => ChromeState::Art(generation, self.artwork_revision),
                 ChromePart::ImmersiveBackground => ChromeState::Background(

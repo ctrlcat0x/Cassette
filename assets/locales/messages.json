@@ -1683,8 +1683,12 @@
     "संस्करण {} · Rust और GPUI से बना · Iconoir के आइकन",
     "Versión {} · Creado con Rust y GPUI · Iconos de Iconoir"
   ],
-  "YOUR\\nCHARTS": [
-    "आपके\\nचार्ट",
-    "TUS\\nESTADÍSTICAS"
+  "Copy music link": [
+    "संगीत लिंक कॉपी करें",
+    "Copiar enlace de música"
+  ],
+  "YOUR\nCHARTS": [
+    "आपके\nचार्ट",
+    "TUS\nESTADÍSTICAS"
   ]
 }

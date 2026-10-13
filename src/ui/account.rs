@@ -164,6 +164,12 @@ impl Raag {
                             && self.playlist_editor_remote
                         {
                             self.editing_playlist = false;
+                            self.library
+                                .playlist_metadata
+                                .entry(id.strip_prefix("VL").unwrap_or(&id).to_owned())
+                                .or_default()
+                                .folder = self.library.active_folder.clone();
+                            self.save();
                             let mut track = Track::song(id, name.trim(), "");
                             track.kind = ItemKind::Playlist;
                             self.open_account_playlist(track, cx);
