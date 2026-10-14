@@ -63,7 +63,7 @@ impl NativeSession {
         let worker_closing = closing.clone();
         let worker = thread::spawn(move || {
             let shared = Arc::new(Shared {
-                pcm: Mutex::new(VecDeque::with_capacity(192_000)),
+                pcm: Mutex::new(VecDeque::new()),
                 paused: AtomicBool::new(true),
                 volume: AtomicU64::new(0.7f64.to_bits()),
                 consumed: AtomicU64::new(0),
@@ -85,6 +85,7 @@ impl NativeSession {
                     return;
                 }
             };
+            shared.pcm.lock().unwrap().reserve(output.1 as usize);
             let mut source: Option<AudioSource> = None;
             let mut cancellation = Arc::new(AtomicBool::new(false));
             let (decoded, results) = mpsc::channel::<(u64, Result<f64>)>();
@@ -531,14 +532,15 @@ fn decode(
     let mut codecs = CodecRegistry::new();
     symphonia::default::register_enabled_codecs(&mut codecs);
     codecs.register_all::<symphonia_adapter_libopus::OpusDecoder>();
-    let track = format
+    let (track, mut decoder) = format
         .tracks()
         .iter()
-        .find(|track| {
-            track.codec_params.sample_rate.is_some()
-                && codecs
-                    .make(&track.codec_params, &DecoderOptions::default())
-                    .is_ok()
+        .find_map(|track| {
+            track.codec_params.sample_rate?;
+            codecs
+                .make(&track.codec_params, &DecoderOptions::default())
+                .ok()
+                .map(|decoder| (track, decoder))
         })
         .context("No supported audio track")?;
     let id = track.id;
@@ -550,7 +552,6 @@ fn decode(
         .map(|time| time.seconds as f64 + time.frac)
         .unwrap_or(0.);
     metadata(duration);
-    let mut decoder = codecs.make(&params, &DecoderOptions::default())?;
     if seconds > 0. {
         format
             .seek(
@@ -568,6 +569,10 @@ fn decode(
     let mut skip_delay = 0;
     let mut output_count = 0u64;
     let mut input_count = 0u64;
+    let mut samples: Option<SampleBuffer<f32>> = None;
+    let mut stereo = Vec::new();
+    let mut block = [vec![0f32; 1024], vec![0f32; 1024]];
+    let mut output = Vec::new();
     let push = |frames: &[[f32; 2]]| -> Result<()> {
         for chunk in frames.chunks(1024) {
             loop {
@@ -628,55 +633,66 @@ fn decode(
                     2,
                 )?;
                 skip_delay = value.output_delay();
+                output = value.output_buffer_allocate(true);
                 resampler = Some(value);
             } else {
                 resampler = None;
             }
         }
-        let mut samples = SampleBuffer::<f32>::new(audio.capacity() as u64, *audio.spec());
+        // Reuse conversion and resampling buffers throughout the recording.
+        let samples = samples.get_or_insert_with(|| {
+            SampleBuffer::<f32>::new(audio.capacity() as u64, *audio.spec())
+        });
+        if samples.capacity() < audio.capacity() * channels {
+            *samples = SampleBuffer::new(audio.capacity() as u64, *audio.spec());
+        }
         samples.copy_interleaved_ref(audio);
         let packet_time = time_base
             .map(|base| base.calc_time(packet.ts()))
             .map(|time| time.seconds as f64 + time.frac)
             .unwrap_or(seconds);
         let discard = ((seconds - packet_time).max(0.) * rate as f64) as usize;
-        let stereo: Vec<[f32; 2]> = samples
-            .samples()
-            .chunks_exact(channels)
-            .skip(discard)
-            .map(|frame| {
-                if channels == 1 {
-                    [frame[0], frame[0]]
-                } else if channels == 2 {
-                    [frame[0], frame[1]]
-                } else {
-                    let center = frame.get(2).copied().unwrap_or(0.) * 0.707;
-                    [(frame[0] + center) * 0.5, (frame[1] + center) * 0.5]
-                }
-            })
-            .collect();
+        stereo.clear();
+        stereo.extend(
+            samples
+                .samples()
+                .chunks_exact(channels)
+                .skip(discard)
+                .map(|frame| {
+                    if channels == 1 {
+                        [frame[0], frame[0]]
+                    } else if channels == 2 {
+                        [frame[0], frame[1]]
+                    } else {
+                        let center = frame.get(2).copied().unwrap_or(0.) * 0.707;
+                        [(frame[0] + center) * 0.5, (frame[1] + center) * 0.5]
+                    }
+                }),
+        );
         input_count += stereo.len() as u64;
         if let Some(resampler) = &mut resampler {
-            for frame in stereo {
+            for frame in &stereo {
                 pending[0].push_back(frame[0]);
                 pending[1].push_back(frame[1]);
             }
             while pending[0].len() >= 1024 {
-                let block: Vec<Vec<f32>> = pending
-                    .iter_mut()
-                    .map(|channel| channel.drain(..1024).collect())
-                    .collect();
-                let output = resampler.process(&block, None)?;
-                let discard = skip_delay.min(output[0].len());
+                for (input, channel) in block.iter_mut().zip(&mut pending) {
+                    input.clear();
+                    input.extend(channel.drain(..1024));
+                }
+                let (_, written) = resampler.process_into_buffer(&block, &mut output, None)?;
+                let discard = skip_delay.min(written);
                 skip_delay -= discard;
-                let frames: Vec<_> = output[0]
-                    .iter()
-                    .zip(&output[1])
-                    .skip(discard)
-                    .map(|(&l, &r)| [l, r])
-                    .collect();
-                output_count += frames.len() as u64;
-                push(&frames)?;
+                stereo.clear();
+                stereo.extend(
+                    output[0][..written]
+                        .iter()
+                        .zip(&output[1])
+                        .skip(discard)
+                        .map(|(&l, &r)| [l, r]),
+                );
+                output_count += stereo.len() as u64;
+                push(&stereo)?;
             }
         } else {
             output_count += stereo.len() as u64;
@@ -685,28 +701,27 @@ fn decode(
     }
     if let Some(resampler) = &mut resampler {
         let expected = (input_count as f64 * output_rate as f64 / input_rate as f64).round() as u64;
-        let mut block: Vec<Vec<f32>> = pending
-            .iter_mut()
-            .map(|channel| channel.drain(..).collect())
-            .collect();
-        for channel in &mut block {
-            channel.resize(1024, 0.);
+        for (input, channel) in block.iter_mut().zip(&mut pending) {
+            input.clear();
+            input.extend(channel.drain(..));
+            input.resize(1024, 0.);
         }
         for _ in 0..3 {
-            let output = resampler.process(&block, None)?;
-            let discard = skip_delay.min(output[0].len());
+            let (_, written) = resampler.process_into_buffer(&block, &mut output, None)?;
+            let discard = skip_delay.min(written);
             skip_delay -= discard;
-            let count =
-                (expected.saturating_sub(output_count) as usize).min(output[0].len() - discard);
-            let frames: Vec<_> = output[0]
-                .iter()
-                .zip(&output[1])
-                .skip(discard)
-                .take(count)
-                .map(|(&l, &r)| [l, r])
-                .collect();
-            output_count += frames.len() as u64;
-            push(&frames)?;
+            let count = (expected.saturating_sub(output_count) as usize).min(written - discard);
+            stereo.clear();
+            stereo.extend(
+                output[0][..written]
+                    .iter()
+                    .zip(&output[1])
+                    .skip(discard)
+                    .take(count)
+                    .map(|(&l, &r)| [l, r]),
+            );
+            output_count += stereo.len() as u64;
+            push(&stereo)?;
             if output_count >= expected {
                 break;
             }
@@ -757,6 +772,7 @@ impl HttpSource {
         );
         Ok(Self {
             client: reqwest::blocking::Client::builder()
+                .no_gzip()
                 .timeout(Duration::from_secs(10))
                 .connect_timeout(Duration::from_secs(4))
                 .user_agent(&source.user_agent)
@@ -786,7 +802,7 @@ impl HttpSource {
                 format!("bytes={start}-{}", start + 262143),
             )
             .send()
-            .map_err(io::Error::other)?;
+            .map_err(|error| io::Error::other(error.without_url()))?;
         if response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
             if let Some(length) = response
                 .headers()
@@ -796,10 +812,15 @@ impl HttpSource {
                 .and_then(|v| v.parse().ok())
             {
                 self.length = Some(length);
+                if start >= length {
+                    return Ok(());
+                }
             }
-            return Ok(());
+            return Err(io::Error::other("Audio server rejected a valid range"));
         }
-        response.error_for_status_ref().map_err(io::Error::other)?;
+        response
+            .error_for_status_ref()
+            .map_err(|error| io::Error::other(error.without_url()))?;
         if response.status() == reqwest::StatusCode::OK {
             // Some origins ignore Range. Use a private anonymous file, not unbounded RAM.
             let mut file = tempfile::tempfile()?;
@@ -821,10 +842,11 @@ impl HttpSource {
             .strip_prefix("bytes ")
             .and_then(|v| v.split_once('/'))
             .ok_or_else(|| io::Error::other("Invalid audio range response"))?;
-        let first = span
+        let (first, last) = span
             .split_once('-')
-            .and_then(|(first, _)| first.parse::<u64>().ok());
-        if first != Some(start) {
+            .and_then(|(first, last)| Some((first.parse::<u64>().ok()?, last.parse::<u64>().ok()?)))
+            .ok_or_else(|| io::Error::other("Invalid audio range response"))?;
+        if first != start || last < first || last - first >= 262144 {
             return Err(io::Error::other("Audio server returned the wrong range"));
         }
         self.length = total.parse().ok().or(self.length);
@@ -832,6 +854,14 @@ impl HttpSource {
         response.by_ref().take(262145).read_to_end(&mut bytes)?;
         if bytes.len() > 262144 {
             return Err(io::Error::other("Audio range exceeds requested size"));
+        }
+        if bytes.len() as u64 != last - first + 1
+            || (bytes.len() < 262144 && self.length != last.checked_add(1))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Incomplete audio range response",
+            ));
         }
         if self.blocks.len() >= 32 {
             self.blocks.pop_front();

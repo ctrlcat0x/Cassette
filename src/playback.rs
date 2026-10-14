@@ -1321,12 +1321,16 @@ pub fn verify_native(path: &str) -> Result<()> {
     wait(&|event| matches!(event, PlayerEvent::Paused(true)))?;
     player.command(PlayerCommand::Seek(0.5));
     wait(&|event| matches!(event, PlayerEvent::Position(value) if (*value - 0.5).abs() < 0.01))?;
+    player.command(PlayerCommand::Pause(false));
+    wait(&|event| matches!(event, PlayerEvent::Paused(false)))?;
+    wait(&|event| matches!(event, PlayerEvent::Position(value) if *value > 0.65))?;
     player.command(PlayerCommand::Prefetch(track.clone()));
     wait(&|event| matches!(event, PlayerEvent::Prepared(id) if id == &track.id))?;
     player.command(PlayerCommand::Load(track, 0.));
     wait(&|event| matches!(event, PlayerEvent::Loaded))?;
     wait(&|event| matches!(event, PlayerEvent::Position(value) if *value > 0.1))?;
-    player.command(PlayerCommand::Seek(duration.get().max(1.)));
+    // Decode and drain the real tail; seeking past EOF bypasses resampler flushing.
+    player.command(PlayerCommand::Seek((duration.get() - 0.5).max(0.)));
     wait(&|event| matches!(event, PlayerEvent::Ended))?;
     player.command(PlayerCommand::Stop);
     println!(
