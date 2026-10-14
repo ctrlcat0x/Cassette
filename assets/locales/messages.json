@@ -1690,5 +1690,45 @@
   "YOUR\nCHARTS": [
     "आपके\nचार्ट",
     "TUS\nESTADÍSTICAS"
+  ],
+  "Audio output": [
+    "ऑडियो आउटपुट",
+    "Salida de audio"
+  ],
+  "Streaming quality": [
+    "स्ट्रीमिंग की गुणवत्ता",
+    "Calidad de transmisión"
+  ],
+  "Download quality": [
+    "डाउनलोड की गुणवत्ता",
+    "Calidad de descarga"
+  ],
+  "Crossfade": [
+    "क्रॉसफ़ेड",
+    "Fundido cruzado"
+  ],
+  "Lyrics provider": [
+    "गीत बोल प्रदाता",
+    "Proveedor de letras"
+  ],
+  "Lyrics text size": [
+    "गीत बोल का आकार",
+    "Tamaño de las letras"
+  ],
+  "Default timing": [
+    "डिफ़ॉल्ट समय",
+    "Tiempo predeterminado"
+  ],
+  "Move to folder": [
+    "फ़ोल्डर में ले जाएँ",
+    "Mover a carpeta"
+  ],
+  "{:.0} seconds": [
+    "{:.0} सेकंड",
+    "{:.0} segundos"
+  ],
+  "Music links": [
+    "संगीत लिंक",
+    "Enlaces de música"
   ]
 }

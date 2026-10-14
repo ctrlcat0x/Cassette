@@ -69,11 +69,11 @@ fn main() {
 }
 
 fn bundle_runtime(root: &Path) {
-    let runtime = root.join(".runtime/bundle");
+    let runtime = root.join(".runtime/extractors");
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let mut files = Vec::new();
     let windows = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
-    for name in ["mpv", "yt-dlp", "deno"] {
+    for name in ["yt-dlp", "deno"] {
         let filename = if windows {
             format!("{name}.exe")
         } else {
@@ -91,10 +91,7 @@ fn bundle_runtime(root: &Path) {
     collect_runtime(&runtime, &runtime, &mut files);
     files.push((root.join("LICENSE"), "licenses/Cassette-LICENSE".into()));
     files.retain(|(_, name)| {
-        !name.starts_with("installer/")
-            && !name.ends_with(".bat")
-            && !name.ends_with(".ps1")
-            && name != "mpv.com"
+        !name.starts_with("installer/") && !name.ends_with(".bat") && !name.ends_with(".ps1")
     });
     files.sort_by(|left, right| left.1.cmp(&right.1));
     files.dedup_by(|left, right| left.1 == right.1);

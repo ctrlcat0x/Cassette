@@ -93,7 +93,7 @@ mod embedded {
     pub fn executable(name: &str) -> Option<PathBuf> {
         let root = DIRECTORY.get()?;
         Some(match name {
-            "yt-dlp" | "mpv" | "deno" => root.join(if cfg!(windows) {
+            "yt-dlp" | "deno" => root.join(if cfg!(windows) {
                 format!("{name}.exe")
             } else {
                 name.into()
@@ -122,7 +122,7 @@ pub(crate) fn executable(name: &str) -> Option<std::path::PathBuf> {
 /// Verify the exact embedded executables, without PATH or user overrides.
 pub fn verify() -> anyhow::Result<()> {
     prepare()?;
-    for name in ["mpv", "yt-dlp", "deno"] {
+    for name in ["yt-dlp", "deno"] {
         let path = executable(name)
             .ok_or_else(|| anyhow::anyhow!("This build has no embedded runtime"))?;
         let mut command = std::process::Command::new(&path);

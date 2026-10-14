@@ -7,7 +7,7 @@ use gpui_kit::component::{
     ActiveTheme, Disableable, Selectable, Sizable,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
-    menu::{DropdownMenu, PopupMenuItem},
+    menu::{DropdownMenu, PopupMenu, PopupMenuItem},
     slider::{Slider, SliderEvent, SliderState, SliderValue},
     switch::Switch,
 };
@@ -313,7 +313,9 @@ pub struct Raag {
     smart_source: usize,
     smart_exclude_explicit: bool,
     playlist_name: Entity<InputState>,
-    mpv_path: Entity<InputState>,
+    settings_category: usize,
+    folder_editor: bool,
+    folder_rename: bool,
     ytdlp_path: Entity<InputState>,
     timeline: Entity<SliderState>,
     mini_timeline: Entity<SliderState>,
@@ -486,11 +488,6 @@ impl Raag {
                 cx.notify();
             }
         });
-        let mpv_path = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder(t("Automatic (mpv on PATH or bundled)"))
-                .default_value(library.mpv_path.clone())
-        });
         let ytdlp_path = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder(t("Automatic (yt-dlp on PATH or bundled)"))
@@ -499,11 +496,7 @@ impl Raag {
         let timeline = cx.new(|_| SliderState::new().step(0.1));
         let mini_timeline = cx.new(|_| SliderState::new().step(0.1));
         let volume = cx.new(|_| SliderState::new().default_value(library.volume as f32));
-        let player = Player::with_cookies(
-            library.mpv_path.clone(),
-            library.ytdlp_path.clone(),
-            library.cookies_path.clone(),
-        );
+        let player = Player::with_cookies(library.ytdlp_path.clone(), library.cookies_path.clone());
         player.command(PlayerCommand::Configure(library.audio.clone()));
         let restored_queue = std::mem::take(&mut library.session.queue);
         let restored_track = restored_queue.current().cloned();
@@ -717,7 +710,9 @@ impl Raag {
             smart_source: 0,
             smart_exclude_explicit: false,
             playlist_name,
-            mpv_path,
+            settings_category: 0,
+            folder_editor: false,
+            folder_rename: false,
             ytdlp_path,
             timeline,
             mini_timeline,
@@ -1393,6 +1388,11 @@ impl Raag {
                     changed = true;
                 }
                 PlayerEvent::EngineReady => {}
+                PlayerEvent::Buffering(value) => {
+                    self.buffering = value;
+                    panel_changed = true;
+                    changed = true;
+                }
                 PlayerEvent::Prepared(id) => {
                     self.prepared_id = Some(id);
                 }
@@ -1521,11 +1521,9 @@ impl Raag {
                     changed = true;
                 }
                 PlayerEvent::Paused(paused) => {
-                    if !self.buffering {
-                        self.playing = !paused;
-                        panel_changed = true;
-                        changed = true;
-                    }
+                    self.playing = !paused;
+                    panel_changed = true;
+                    changed = true;
                 }
                 PlayerEvent::Ended => {
                     if self.sleep_end {
@@ -1818,6 +1816,7 @@ impl Raag {
             self.playlist_editor_remote = false;
             self.editing_description = false;
             self.editing_smart = None;
+            self.folder_editor = false;
             self.refresh_visible();
             fetch_artwork(
                 self.visible.iter().take(9).cloned().collect(),
@@ -2179,14 +2178,11 @@ impl Raag {
         .detach();
     }
     fn reset_player(&mut self, cx: &mut Context<Self>) {
-        let replacement = Player::with_cookies(
-            self.library.mpv_path.clone(),
-            self.library.ytdlp_path.clone(),
-            self.playback_cookies(),
-        );
+        let replacement =
+            Player::with_cookies(self.library.ytdlp_path.clone(), self.playback_cookies());
         let previous = std::mem::replace(&mut self.player, replacement);
         previous.command(PlayerCommand::Stop);
-        // Drop joins IPC and extractor workers. Account/tool changes must not
+        // Drop joins audio and extractor workers. Account/tool changes must not
         // wait for those workers on the GPUI foreground executor.
         cx.background_spawn(async move { drop(previous) }).detach();
         self.player
@@ -4449,6 +4445,24 @@ impl Raag {
             .child(lyrics)
             .into_any_element()
     }
+    fn setting_row(
+        &self,
+        label: impl Into<SharedString>,
+        control: impl IntoElement,
+        cx: &App,
+    ) -> Div {
+        div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .justify_between()
+            .gap_4()
+            .py_3()
+            .border_b_1()
+            .border_color(cx.theme().border.opacity(0.5))
+            .child(div().text_sm().child(label.into()))
+            .child(div().flex_shrink_0().child(control))
+    }
     fn settings_section(&self, title: &'static str, description: &'static str, cx: &App) -> Div {
         div()
             .flex()
@@ -4586,31 +4600,34 @@ impl Raag {
                     ),
             )
             .child(
-                Switch::new("autoplay-setting")
-                    .label(t("Continue with similar songs"))
-                    .checked(self.library.autoplay)
-                    .on_change(cx.listener(|this, value, _, cx| {
-                        this.library.autoplay = *value;
-                        this.content_revision += 1;
-                        this.save();
-                        cx.notify();
-                    })),
+                self.setting_row(
+                    t("Continue with similar songs"),
+                    Switch::new("autoplay-setting")
+                        .accessibility_label(t("Continue with similar songs"))
+                        .checked(self.library.autoplay)
+                        .on_change(cx.listener(|this, value, _, cx| {
+                            this.library.autoplay = *value;
+                            this.content_revision += 1;
+                            this.save();
+                            cx.notify();
+                        })),
+                    cx,
+                ),
             );
         let system = self.settings_section(t("System"), t("Ready when you are"), cx)
-            .child(Button::new("register-links").ghost().label(t("Enable Cassette links")).on_click(cx.listener(|this, _, _, cx| this.register_links(cx))))
-            .child(div().text_sm().text_color(cx.theme().muted_foreground).child(if self.media.is_some() { t("System media controls are connected.") } else { t("System media controls are unavailable in this session.") }))
-            .child(Switch::new("close-to-tray").label(t("Keep Cassette in the tray when closing"))
-                .checked(self.library.close_to_tray).disabled(!tray_available)
-                .on_change(cx.listener(|this, value, _, cx| {
+            .child(self.setting_row(t("Music links"), Button::new("register-links").label(t("Enable Cassette links")).on_click(cx.listener(|this, _, _, cx| this.register_links(cx))), cx))
+            .child(self.setting_row(t("Keep Cassette in the tray when closing"), Switch::new("close-to-tray").accessibility_label(t("Keep Cassette in the tray when closing"))
+                .checked(self.library.close_to_tray).disabled(!tray_available).on_change(cx.listener(|this, value, _, cx| {
                     this.library.close_to_tray = *value; this.content_revision += 1; this.save(); cx.notify();
-                })))
-            .child(Switch::new("start-at-login").label(t("Start with your computer, in the tray"))
+                })), cx))
+            .child(self.setting_row(t("Start with your computer, in the tray"), Switch::new("start-at-login").accessibility_label(t("Start with your computer, in the tray"))
                 .checked(self.library.start_at_login).disabled(!tray_available || self.startup_busy)
-                .on_change(cx.listener(|this, value, _, cx| this.set_start_at_login(*value, cx))))
+                .on_change(cx.listener(|this, value, _, cx| this.set_start_at_login(*value, cx))), cx))
+            .child(div().text_sm().text_color(cx.theme().muted_foreground).child(if self.media.is_some() { t("System media controls are connected.") } else { t("System media controls are unavailable in this session.") }))
             .child(div().text_sm().text_color(cx.theme().muted_foreground)
                 .child(if tray_available { t("Open the tray menu to return to Cassette or quit completely.") }
                     else { t("Tray hiding is unavailable on this desktop. On Linux, use an X11 session with a system tray.") }));
-        let advanced = div().flex().flex_col().gap_4()
+        let advanced = div().flex().flex_col().items_start().gap_4()
             .child(Button::new("advanced-settings").ghost()
                 .icon(icon(if self.advanced_settings { "nav-arrow-down" } else { "nav-arrow-right" }))
                 .label(t("Advanced"))
@@ -4618,10 +4635,8 @@ impl Raag {
             .when(self.advanced_settings, |section| section.child(
                 div().flex().flex_col().gap_4().pl_3()
                     .child(div().text_sm().text_color(cx.theme().muted_foreground).child(t("Playback tools are detected automatically. Change paths only when using a custom installation.")))
-                    .child(div().flex().flex_col().gap_2().text_sm().child(t("mpv executable")).child(Input::new(&self.mpv_path)))
                     .child(div().flex().flex_col().gap_2().text_sm().child(t("yt-dlp executable")).child(Input::new(&self.ytdlp_path)))
                     .child(div().child(Button::new("save-tools").label(t("Apply paths")).on_click(cx.listener(|this, _, _, cx| {
-                        this.library.mpv_path = this.mpv_path.read(cx).value().to_string();
                         this.library.ytdlp_path = this.ytdlp_path.read(cx).value().to_string();
                         this.reset_player(cx); this.save(); this.content_revision += 1;
                         this.notice = Some(t("Playback paths updated").into()); cx.notify();
@@ -4630,43 +4645,86 @@ impl Raag {
                         .child(Button::new("choose-cookies").ghost().label(t("Import cookies…")).disabled(self.auth.busy())
                             .on_click(cx.listener(|this, _, _, cx| this.choose_cookies(cx))))
                         .child(Button::new("cookie-help").ghost().label(t("Cookie import help")).on_click(|_, _, cx| cx.open_url("https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies"))))));
-        let content = div()
+        let mut tabs = div()
             .flex()
-            .flex_col()
-            .gap_8()
-            .w_full()
-            .max_w(rems(55.))
-            .child(self.title(t("Make yourself at home."), cx).mb_0())
-            .child(self.appearance_settings(window, cx))
-            .child(self.localization_settings(cx))
-            .child(
-                self.settings_section(t("Lyrics"), t("Providers, timing and text"), cx)
-                    .child(self.lyrics_preferences(cx)),
-            )
-            .child(playback)
-            .child(
-                self.settings_section(t("Sound"), t("Output, tone and transitions"), cx)
-                    .child(self.audio_controls(window, cx)),
-            )
-            .child(
-                self.settings_section(
-                    t("Discovery"),
-                    t("Recommendations and listening history"),
-                    cx,
+            .flex_wrap()
+            .gap_1()
+            .pb_4()
+            .border_b_1()
+            .border_color(cx.theme().border);
+        for (index, label) in [
+            "Appearance",
+            "Playback",
+            "Lyrics",
+            "Offline storage",
+            "YouTube Music",
+            "System",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            tabs = tabs.child(
+                Button::new(("settings-category", index))
+                    .ghost()
+                    .label(t(label))
+                    .selected(self.settings_category == index)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.settings_category = index;
+                        this.scroll.reset();
+                        this.content_revision += 1;
+                        cx.notify();
+                    })),
+            );
+        }
+        let panel = match self.settings_category {
+            0 => div()
+                .flex()
+                .flex_col()
+                .gap_6()
+                .child(self.appearance_settings(window, cx))
+                .child(self.localization_settings(cx)),
+            1 => div()
+                .flex()
+                .flex_col()
+                .gap_6()
+                .child(playback)
+                .child(
+                    self.settings_section(t("Sound"), t("Output, tone and transitions"), cx)
+                        .child(self.audio_controls(window, cx)),
                 )
-                .child(self.discovery_controls(cx)),
-            )
-            .child(
-                self.settings_section(
+                .child(
+                    self.settings_section(
+                        t("Discovery"),
+                        t("Recommendations and listening history"),
+                        cx,
+                    )
+                    .child(self.discovery_controls(cx)),
+                ),
+            2 => self
+                .settings_section(t("Lyrics"), t("Providers, timing and text"), cx)
+                .child(self.lyrics_preferences(cx)),
+            3 => self
+                .settings_section(
                     t("Offline storage"),
                     t("Pinned downloads and temporary cache"),
                     cx,
                 )
                 .child(self.offline_controls(cx)),
-            )
-            .child(account)
-            .child(system)
-            .child(advanced)
+            4 => account,
+            _ => div()
+                .flex()
+                .flex_col()
+                .gap_6()
+                .child(system)
+                .child(advanced),
+        };
+        let content = div()
+            .flex()
+            .flex_col()
+            .gap_6()
+            .w_full()
+            .max_w(rems(55.))
+            .child(panel)
             .child(
                 div()
                     .border_t_1()
@@ -4694,19 +4752,49 @@ impl Raag {
                             )),
                     ),
             );
-        self.scroll
-            .bind(div().id("settings-scroll"))
+        div()
             .size_full()
-            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .min_h_0()
             .child(
                 div()
+                    .flex_shrink_0()
                     .flex()
                     .justify_center()
-                    .w_full()
                     .px_8()
                     .pt_5()
-                    .pb_8()
-                    .child(content),
+                    .pb_3()
+                    .child(
+                        div()
+                            .w_full()
+                            .max_w(rems(55.))
+                            .flex()
+                            .flex_col()
+                            .gap_6()
+                            .child(self.page_heading(
+                                t("Settings"),
+                                t("Make yourself at home."),
+                                cx,
+                            ))
+                            .child(tabs),
+                    ),
+            )
+            .child(
+                self.scroll
+                    .bind(div().id("settings-scroll"))
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .child(
+                        div()
+                            .flex()
+                            .justify_center()
+                            .w_full()
+                            .px_8()
+                            .pb_8()
+                            .child(content),
+                    ),
             )
             .into_any_element()
     }

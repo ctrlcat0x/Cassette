@@ -683,6 +683,12 @@ pub(crate) fn parse_renderer(value: &Value) -> Option<Track> {
     let id = video.or_else(|| browse.and_then(|browse| browse["browseId"].as_str()))?;
     let mut title = text(&value["title"]);
     let mut subtitle = text(&value["subtitle"]);
+    if subtitle.is_empty() {
+        subtitle = text(&value["longBylineText"]);
+    }
+    if subtitle.is_empty() {
+        subtitle = text(&value["shortBylineText"]);
+    }
     if let Some(columns) = value["flexColumns"].as_array() {
         if title.is_empty() {
             title = columns
@@ -777,7 +783,11 @@ pub(crate) fn parse_renderer(value: &Value) -> Option<Track> {
         }
     }
     artist_runs(&value["subtitle"], &mut artists);
-    if let Some(name) = album_run(&value["subtitle"]) {
+    artist_runs(&value["longBylineText"], &mut artists);
+    artist_runs(&value["shortBylineText"], &mut artists);
+    if let Some(name) =
+        album_run(&value["subtitle"]).or_else(|| album_run(&value["longBylineText"]))
+    {
         album = name;
     }
     if let Some(columns) = value["flexColumns"].as_array() {

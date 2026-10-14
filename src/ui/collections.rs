@@ -373,6 +373,7 @@ impl Raag {
             AccountSection::Playlists
         };
         let key = Key::Section(section);
+        let has_folder = self.library.active_folder.is_some();
         let loading = signed_in && self.account.loading(&key);
         let owner = cx.weak_entity();
         let mut body = div()
@@ -422,11 +423,16 @@ impl Raag {
                                             (t("New local playlist…"), 1),
                                             (t("Local files"), 2),
                                             (t("Liked songs"), 3),
+                                            (t("New folder"), 4),
+                                            (t("New smart playlist"), 5),
+                                            (t("Rename folder"), 6),
+                                            (t("Remove folder, keep playlists"), 7),
                                         ] {
                                             let owner = owner.clone();
-                                            menu =
-                                                menu.item(PopupMenuItem::new(label).on_click(
-                                                    move |_, window, cx| {
+                                            menu = menu.item(
+                                                PopupMenuItem::new(label)
+                                                    .disabled(command >= 6 && !has_folder)
+                                                    .on_click(move |_, window, cx| {
                                                         let _ = owner.update(cx, |this, cx| {
                                                             match command {
                                                                 0 => this.import_playlist(cx),
@@ -436,13 +442,100 @@ impl Raag {
                                                                 2 => {
                                                                     this.navigate(Screen::Local, cx)
                                                                 }
-                                                                _ => {
+                                                                3 => {
                                                                     this.navigate(Screen::Liked, cx)
+                                                                }
+                                                                4 | 6 => {
+                                                                    this.library_section =
+                                                                        AccountSection::Playlists;
+                                                                    this.editing_smart = None;
+                                                                    this.editing_playlist = false;
+                                                                    this.folder_editor = true;
+                                                                    this.folder_rename =
+                                                                        command == 6;
+                                                                    let name = if command == 6 {
+                                                                        this.library
+                                                                            .active_folder
+                                                                            .as_ref()
+                                                                            .and_then(|id| {
+                                                                                this.library
+                                                                                .folders
+                                                                                .iter()
+                                                                                .find(|folder| {
+                                                                                    &folder.id == id
+                                                                                })
+                                                                            })
+                                                                            .map_or(
+                                                                                String::new(),
+                                                                                |folder| {
+                                                                                    folder
+                                                                                        .name
+                                                                                        .clone()
+                                                                                },
+                                                                            )
+                                                                    } else {
+                                                                        String::new()
+                                                                    };
+                                                                    this.organization_name.update(
+                                                                        cx,
+                                                                        |input, cx| {
+                                                                            input.set_value(
+                                                                                name, window, cx,
+                                                                            );
+                                                                            input.focus(window, cx);
+                                                                        },
+                                                                    );
+                                                                    this.content_revision += 1;
+                                                                    cx.notify();
+                                                                }
+                                                                7 => {
+                                                                    if let Some(id) = this
+                                                                        .library
+                                                                        .active_folder
+                                                                        .clone()
+                                                                    {
+                                                                        this.library
+                                                                            .remove_folder(&id);
+                                                                        this.navigation_revision +=
+                                                                            1;
+                                                                        this.content_revision += 1;
+                                                                        this.save();
+                                                                        cx.notify();
+                                                                    }
+                                                                }
+                                                                _ => {
+                                                                    this.library_section =
+                                                                        AccountSection::Playlists;
+                                                                    this.folder_editor = false;
+                                                                    this.editing_playlist = false;
+                                                                    this.editing_smart =
+                                                                        Some(String::new());
+                                                                    this.smart_source = 0;
+                                                                    this.smart_exclude_explicit =
+                                                                        false;
+                                                                    for input in [
+                                                                        &this.smart_name,
+                                                                        &this.smart_query,
+                                                                        &this.smart_artist,
+                                                                        &this.smart_album,
+                                                                        &this.smart_plays,
+                                                                    ] {
+                                                                        input.update(
+                                                                            cx,
+                                                                            |input, cx| {
+                                                                                input.set_value(
+                                                                                    "", window, cx,
+                                                                                )
+                                                                            },
+                                                                        );
+                                                                    }
+                                                                    this.content_revision += 1;
+                                                                    cx.notify();
                                                                 }
                                                             }
                                                         });
-                                                    },
-                                                ));
+                                                    }),
+                                            );
                                         }
                                         menu
                                     }),

@@ -249,6 +249,7 @@ impl Raag {
             .tooltip(t("Playlist actions"))
             .accessibility_label(t("Playlist actions"))
             .dropdown_menu(move |mut menu, window, cx| {
+                menu = { let actions = owner.upgrade().unwrap().read(cx).collection_actions(owner.clone()); actions(menu, window, cx) };
                 let add_owner = owner.clone();
                 let add_id = playlist.clone();
                 menu = menu

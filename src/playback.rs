@@ -1,11 +1,12 @@
-//! A separate mpv process owns buffering, codecs and audio output.
+//! Playback coordination, source resolution and native audio preparation.
+use crate::native_audio::{Command as AudioCommand, NativeSession};
 use crate::{ItemKind, Track, catalog::validate_video_id};
 use anyhow::{Context, Result, bail};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::{
-    io::{BufRead, BufReader, Read, Write},
+    io::Read,
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -38,6 +39,7 @@ pub enum PlayerEvent {
     Position(f64),
     Duration(f64),
     Paused(bool),
+    Buffering(bool),
     Ended,
     Error(String),
     SettingsError(String),
@@ -74,11 +76,11 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(mpv: String, ytdlp: String) -> Self {
-        Self::with_cookies(mpv, ytdlp, String::new())
+    pub fn new(ytdlp: String) -> Self {
+        Self::with_cookies(ytdlp, String::new())
     }
 
-    pub fn with_cookies(mpv: String, ytdlp: String, cookies: String) -> Self {
+    pub fn with_cookies(ytdlp: String, cookies: String) -> Self {
         let (commands, requests) = mpsc::channel();
         let (events, responses) = mpsc::channel();
         let generation = Arc::new(AtomicU64::new(0));
@@ -103,7 +105,7 @@ impl Player {
             })];
             // Own one silent, connected engine from startup. First playback uses
             // this exact engine instead of initializing it after extraction.
-            let mut idle = IdleAudio::start(&mpv).ok();
+            let mut idle = IdleAudio::start().ok();
             if idle.is_some() {
                 let _ = events.send(PlaybackEvent {
                     generation: 0,
@@ -184,12 +186,12 @@ impl Player {
                                     });
                                 }
                             }
-                            let _ = ready.engine.send(json!([
-                                "set_property",
-                                "volume",
-                                if fading.is_some() { 0. } else { volume }
-                            ]));
-                            let _ = ready.engine.send(json!(["set_property", "pause", false]));
+                            let _ = ready.engine.send(AudioCommand::Volume(if fading.is_some() {
+                                0.
+                            } else {
+                                volume
+                            }));
+                            let _ = ready.engine.send(AudioCommand::Pause(false));
                             session = Some(ready);
                         } else {
                             prepared = None;
@@ -261,21 +263,14 @@ impl Player {
                         if matches!(command, PlayerCommand::Pause(_) | PlayerCommand::Seek(_)) {
                             fading = None;
                             if let Some(ready) = &mut session {
-                                let _ =
-                                    ready.engine.send(json!(["set_property", "volume", volume]));
+                                let _ = ready.engine.send(AudioCommand::Volume(volume));
                             }
                         }
                         if let Some(ready) = &mut session {
                             let message = match command {
-                                PlayerCommand::Pause(paused) => {
-                                    json!(["set_property", "pause", paused])
-                                }
-                                PlayerCommand::Seek(seconds) => {
-                                    json!(["seek", seconds.max(0.), "absolute+exact"])
-                                }
-                                PlayerCommand::Volume(volume) => {
-                                    json!(["set_property", "volume", volume.clamp(0., 100.)])
-                                }
+                                PlayerCommand::Pause(paused) => AudioCommand::Pause(paused),
+                                PlayerCommand::Seek(seconds) => AudioCommand::Seek(seconds),
+                                PlayerCommand::Volume(volume) => AudioCommand::Volume(volume),
                                 _ => unreachable!(),
                             };
                             if let Err(error) = ready.engine.send(message) {
@@ -297,7 +292,6 @@ impl Player {
                     }
                     let result = source.and_then(|source| {
                         PreparedAudio::load(
-                            &mpv,
                             track_id,
                             source,
                             id,
@@ -340,14 +334,9 @@ impl Player {
                     fade_tick = Instant::now();
                     let ratio =
                         (since.elapsed().as_secs_f64() / settings.crossfade.max(0.01)).min(1.);
-                    let _ =
-                        old.engine
-                            .send(json!(["set_property", "volume", volume * (1. - ratio)]));
+                    let _ = old.engine.send(AudioCommand::Volume(volume * (1. - ratio)));
                     if let Some(ready) = &mut session {
-                        let _ =
-                            ready
-                                .engine
-                                .send(json!(["set_property", "volume", volume * ratio]));
+                        let _ = ready.engine.send(AudioCommand::Volume(volume * ratio));
                     }
                     while old.events.try_recv().is_ok() {}
                     if ratio >= 1. {
@@ -482,17 +471,16 @@ impl Player {
 }
 
 struct IdleAudio {
-    engine: MpvSession,
+    engine: NativeSession,
     events: Receiver<PlaybackEvent>,
 }
-fn configure(engine: &mut MpvSession, settings: &crate::audio_settings::AudioSettings) {
-    let _ = engine.send(json!(["af", "set", settings.filters().join(",")]));
-    let _ = engine.send(json!(["set_property", "audio-device", settings.output]));
+fn configure(engine: &mut NativeSession, settings: &crate::audio_settings::AudioSettings) {
+    let _ = engine.send(AudioCommand::Configure(settings.clone()));
 }
 impl IdleAudio {
-    fn start(mpv: &str) -> Result<Self> {
+    fn start() -> Result<Self> {
         let (sender, events) = mpsc::channel();
-        let engine = MpvSession::start(mpv, sender, 0)?;
+        let engine = NativeSession::start(sender, 0)?;
         Ok(Self { engine, events })
     }
 }
@@ -543,7 +531,7 @@ fn warm_extractor(ytdlp: &str, generation: &AtomicU64) {
 struct PreparedAudio {
     track_id: String,
     source: AudioSource,
-    engine: MpvSession,
+    engine: NativeSession,
     events: Receiver<PlaybackEvent>,
     duration: f64,
     loaded_forwarded: bool,
@@ -551,7 +539,6 @@ struct PreparedAudio {
 }
 impl PreparedAudio {
     fn load(
-        mpv: &str,
         track_id: String,
         source: AudioSource,
         generation: u64,
@@ -564,20 +551,14 @@ impl PreparedAudio {
                 (!idle.engine.closing.load(Ordering::Acquire) && idle.engine.is_running())
                     .then_some(idle)
             })
-            .map_or_else(|| IdleAudio::start(mpv), Ok)?;
+            .map_or_else(IdleAudio::start, Ok)?;
         while events.try_recv().is_ok() {}
         engine.generation = generation;
         engine.started = Instant::now();
         engine.loaded.store(false, Ordering::Release);
-        engine.send(json!(["set_property", "pause", paused]))?;
-        engine.send(json!(["set_property", "volume", volume.clamp(0., 100.)]))?;
-        engine.send(json!(["set_property", "user-agent", source.user_agent]))?;
-        engine.send(json!([
-            "set_property",
-            "http-header-fields",
-            source.headers
-        ]))?;
-        engine.send(json!(["loadfile", source.url, "replace"]))?;
+        engine.send(AudioCommand::Pause(paused))?;
+        engine.send(AudioCommand::Volume(volume))?;
+        engine.send(AudioCommand::Load(source.clone()))?;
         Ok(Self {
             track_id,
             source,
@@ -1268,6 +1249,93 @@ impl Drop for Player {
     }
 }
 
+/// End-to-end native audio smoke check using a caller-provided recording.
+/// Output is muted; the real device callback must advance media time.
+pub fn verify_native(path: &str) -> Result<()> {
+    crate::runtime::prepare()?;
+    let player = Player::new(String::new());
+    let mut track = if path.starts_with("https://") {
+        let crate::links::Link::Track(id) = crate::links::Link::parse(path)? else {
+            bail!("Audio smoke requires a song link");
+        };
+        Track::song(id, "Native audio smoke", "")
+    } else {
+        let path = std::fs::canonicalize(path)?;
+        let mut track = Track::song(
+            path.to_string_lossy().into_owned(),
+            "Native audio smoke",
+            "Smoke Artist",
+        );
+        track.kind = ItemKind::Local;
+        track
+    };
+    track.duration = 0;
+    if track.kind == ItemKind::Song {
+        let page = crate::catalog::Catalog::new(None)?.radio(&track.id)?;
+        let songs: Vec<_> = page
+            .tracks
+            .iter()
+            .filter(|song| song.kind == ItemKind::Song)
+            .collect();
+        anyhow::ensure!(!songs.is_empty(), "Song radio returned no recommendations");
+        anyhow::ensure!(
+            songs.iter().all(|song| !song.artist.trim().is_empty()),
+            "Song radio returned missing artist metadata"
+        );
+        println!("Radio metadata: {} songs have artists", songs.len());
+    }
+    let duration = std::cell::Cell::new(0f64);
+    let wait = |predicate: &dyn Fn(&PlayerEvent) -> bool| -> Result<PlayerEvent> {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let response = player
+                .events
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .context("Native playback smoke timed out")?;
+            if response.generation != player.generation() {
+                continue;
+            }
+            if let PlayerEvent::Duration(value) = response.event {
+                duration.set(value);
+            }
+            match &response.event {
+                PlayerEvent::Error(error) | PlayerEvent::SettingsError(error) => bail!("{error}"),
+                event if predicate(event) => return Ok(response.event),
+                _ => {}
+            }
+        }
+    };
+    player.command(PlayerCommand::Configure(
+        crate::audio_settings::AudioSettings {
+            jiosaavn: false,
+            normalize: true,
+            equalizer: [2., -1., 3., -2., 1.],
+            crossfade: 2.,
+            ..Default::default()
+        },
+    ));
+    player.command(PlayerCommand::Load(track.clone(), 0.));
+    wait(&|event| matches!(event, PlayerEvent::Loaded))?;
+    wait(&|event| matches!(event, PlayerEvent::Position(value) if *value > 0.1))?;
+    player.command(PlayerCommand::Pause(true));
+    wait(&|event| matches!(event, PlayerEvent::Paused(true)))?;
+    player.command(PlayerCommand::Seek(0.5));
+    wait(&|event| matches!(event, PlayerEvent::Position(value) if (*value - 0.5).abs() < 0.01))?;
+    player.command(PlayerCommand::Prefetch(track.clone()));
+    wait(&|event| matches!(event, PlayerEvent::Prepared(id) if id == &track.id))?;
+    player.command(PlayerCommand::Load(track, 0.));
+    wait(&|event| matches!(event, PlayerEvent::Loaded))?;
+    wait(&|event| matches!(event, PlayerEvent::Position(value) if *value > 0.1))?;
+    player.command(PlayerCommand::Seek(duration.get().max(1.)));
+    wait(&|event| matches!(event, PlayerEvent::Ended))?;
+    player.command(PlayerCommand::Stop);
+    println!(
+        "Native audio: decode, resample, output, EQ, normalization, pause, seek, prefetch, crossfade, end and stop passed ({:.3} s)",
+        duration.get()
+    );
+    Ok(())
+}
+
 pub fn executable(name: &str, override_path: &str) -> PathBuf {
     if !override_path.trim().is_empty() {
         return PathBuf::from(override_path.trim());
@@ -1333,305 +1401,4 @@ fn hidden(command: &mut Command) {
     }
     #[cfg(not(windows))]
     let _ = command;
-}
-
-trait Pipe: Read + Write + Send {}
-#[cfg(windows)]
-impl Pipe for std::fs::File {}
-#[cfg(unix)]
-impl Pipe for std::os::unix::net::UnixStream {}
-
-fn connect(endpoint: &std::path::Path) -> std::io::Result<Box<dyn Pipe>> {
-    #[cfg(windows)]
-    return std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(endpoint)
-        .map(|pipe| Box::new(pipe) as Box<dyn Pipe>);
-    #[cfg(unix)]
-    return std::os::unix::net::UnixStream::connect(endpoint)
-        .map(|pipe| Box::new(pipe) as Box<dyn Pipe>);
-}
-
-struct MpvSession {
-    child: Child,
-    commands: Option<Sender<Value>>,
-    command_worker: Option<thread::JoinHandle<()>>,
-    endpoint: PathBuf,
-    generation: u64,
-    started: Instant,
-    loaded: Arc<std::sync::atomic::AtomicBool>,
-    closing: Arc<std::sync::atomic::AtomicBool>,
-}
-
-impl MpvSession {
-    fn start(mpv: &str, events: Sender<PlaybackEvent>, generation: u64) -> Result<Self> {
-        let unique = format!("raag-{}-{:x}", std::process::id(), rand::random::<u64>());
-        #[cfg(windows)]
-        let endpoint = PathBuf::from(format!(r"\\.\pipe\{unique}"));
-        #[cfg(unix)]
-        let endpoint = std::env::temp_dir().join(format!("{unique}.sock"));
-        let mpv_path = executable("mpv", mpv);
-        let mut command = Command::new(&mpv_path);
-        command
-            .args(
-                MPV_OPTIONS
-                    .iter()
-                    .map(|(name, value)| format!("--{name}={value}")),
-            )
-            .arg(format!("--input-ipc-server={}", endpoint.display()))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        hidden(&mut command);
-        let mut child = command.spawn().context("The audio engine is missing. Set the mpv path in Settings, or install the playback tools described in README.")?;
-        let mut connection: Option<Box<dyn Pipe>> = None;
-        for _ in 0..40 {
-            let opened = connect(&endpoint);
-            if let Ok(pipe) = opened {
-                connection = Some(pipe);
-                break;
-            }
-            if child.try_wait()?.is_some() {
-                break;
-            }
-            thread::sleep(Duration::from_millis(50));
-        }
-        let Some(pipe) = connection else {
-            let _ = child.kill();
-            let _ = child.wait();
-            bail!("The audio engine did not respond. Check the mpv path in Settings.");
-        };
-        let loaded = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let closing = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let (commands, jobs) = mpsc::channel::<Value>();
-        let command_events = events.clone();
-        let command_closing = closing.clone();
-        let command_worker = thread::spawn(move || {
-            let mut pipe = BufReader::new(pipe);
-            let mut request_id = 0u64;
-            let result = (|| -> Result<()> {
-                while let Ok(command) = jobs.recv() {
-                    request_id += 1;
-                    let mut message =
-                        serde_json::to_vec(&json!({"command": command, "request_id": request_id}))?;
-                    message.push(b'\n');
-                    pipe.get_mut().write_all(&message)?;
-                    pipe.get_mut().flush()?;
-                    // Consume replies on the command connection. Otherwise its
-                    // output buffer eventually fills after repeated seeks/volume changes.
-                    loop {
-                        let mut line = String::new();
-                        if pipe.read_line(&mut line)? == 0 {
-                            bail!("Audio command connection closed");
-                        }
-                        let value: Value = serde_json::from_str(&line)?;
-                        if value["request_id"].as_u64() == Some(request_id) {
-                            if value["error"]
-                                .as_str()
-                                .is_some_and(|error| error != "success")
-                            {
-                                // Older mpv builds use FFmpeg networking and lack curl options.
-                                // Their stream-lavf-o settings still apply; unsupported tuning
-                                // must never prevent playback.
-                                if command[0] == "set_property"
-                                    && matches!(
-                                        command[1].as_str(),
-                                        Some(
-                                            "options/curl-max-request-size"
-                                                | "options/curl-buffer-size"
-                                        )
-                                    )
-                                {
-                                    break;
-                                }
-                                if command[0] == "af"
-                                    || command[0] == "set_property" && command[1] == "audio-device"
-                                {
-                                    let _ = command_events.send(PlaybackEvent { generation, event: PlayerEvent::SettingsError(if command[0] == "af" { "The requested audio filters are unavailable in this mpv build." } else { "The selected audio output is unavailable. Choose another output in Settings." }.into()) });
-                                    break;
-                                }
-                                bail!(
-                                    "Audio command failed: {}",
-                                    value["error"].as_str().unwrap_or("unknown")
-                                );
-                            }
-                            break;
-                        }
-                    }
-                }
-                Ok(())
-            })();
-            if result.is_err() && !command_closing.load(Ordering::Acquire) {
-                let _ = command_events.send(PlaybackEvent {
-                    generation,
-                    event: PlayerEvent::Error(
-                        "The audio controls disconnected. Retry playback.".into(),
-                    ),
-                });
-            }
-        });
-        let mut session = Self {
-            child,
-            commands: Some(commands),
-            command_worker: Some(command_worker),
-            endpoint,
-            generation,
-            started: Instant::now(),
-            loaded: loaded.clone(),
-            closing: closing.clone(),
-        };
-        // Native curl otherwise opens one unbounded request with a 4 MiB buffer.
-        // Keep the first packets small and fetch subsequent ranges sequentially.
-        session.send(json!([
-            "set_property",
-            "options/curl-max-request-size",
-            262144
-        ]))?;
-        session.send(json!(["set_property", "options/curl-buffer-size", 65536]))?;
-        // Windows synchronous named-pipe handles serialize ReadFile and WriteFile.
-        // Observe on a separate client so a blocking read cannot stall commands.
-        let mut observer = None;
-        for _ in 0..40 {
-            if let Ok(pipe) = connect(&session.endpoint) {
-                observer = Some(pipe);
-                break;
-            }
-            thread::sleep(Duration::from_millis(50));
-        }
-        let mut reader = observer.context("Could not connect to the audio event stream")?;
-        for (id, property) in [
-            (1, "time-pos"),
-            (2, "duration"),
-            (3, "pause"),
-            (4, "audio-device-list"),
-        ] {
-            send_message(&mut reader, json!(["observe_property", id, property]))?;
-        }
-        thread::spawn(move || {
-            for line in BufReader::new(reader).lines() {
-                let Ok(line) = line else {
-                    break;
-                };
-                let Ok(value) = serde_json::from_str::<Value>(&line) else {
-                    continue;
-                };
-                if let Some(event) = parse_event(&value) {
-                    if matches!(event, PlayerEvent::Loaded) {
-                        loaded.store(true, Ordering::Release);
-                    }
-                    if events.send(PlaybackEvent { generation, event }).is_err() {
-                        break;
-                    }
-                }
-            }
-            if !closing.load(Ordering::Acquire) {
-                let _ = events.send(PlaybackEvent {
-                    generation,
-                    event: PlayerEvent::Error(
-                        "The audio engine disconnected. Retry playback.".into(),
-                    ),
-                });
-            }
-        });
-        Ok(session)
-    }
-
-    fn send(&mut self, command: Value) -> Result<()> {
-        self.commands
-            .as_ref()
-            .context("Audio controls are closed")?
-            .send(command)
-            .context("The audio command worker stopped")
-    }
-
-    fn is_running(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(None))
-    }
-}
-
-// Keep playback independent of user mpv configuration and video rendering.
-const MPV_OPTIONS: &[(&str, &str)] = &[
-    ("idle", "yes"),
-    ("video", "no"),
-    ("terminal", "no"),
-    ("config", "no"),
-    ("load-scripts", "no"),
-    ("osc", "no"),
-    ("keep-open", "no"),
-    ("audio-display", "no"),
-    ("cache", "yes"),
-    ("cache-pause-initial", "no"),
-    ("cache-secs", "20"),
-    ("demuxer-readahead-secs", "20"),
-    ("demuxer-max-bytes", "16MiB"),
-    ("demuxer-max-back-bytes", "4MiB"),
-    ("cache-pause-wait", "2"),
-    ("network-timeout", "20"),
-    (
-        "stream-lavf-o",
-        "request_size=262144,initial_request_size=65536,short_seek_size=262144,multiple_requests=1",
-    ),
-    ("ytdl", "no"),
-];
-
-fn send_message(pipe: &mut Box<dyn Pipe>, command: Value) -> Result<()> {
-    let mut message = serde_json::to_vec(&json!({"command": command}))?;
-    message.push(b'\n');
-    pipe.write_all(&message)?;
-    pipe.flush()?;
-    Ok(())
-}
-
-impl Drop for MpvSession {
-    fn drop(&mut self) {
-        self.closing.store(true, Ordering::Release);
-        let _ = self.send(json!(["quit"]));
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        self.commands.take();
-        if let Some(worker) = self.command_worker.take() {
-            let _ = worker.join();
-        }
-        #[cfg(unix)]
-        let _ = std::fs::remove_file(&self.endpoint);
-        #[cfg(windows)]
-        let _ = &self.endpoint;
-    }
-}
-
-pub fn parse_event(value: &Value) -> Option<PlayerEvent> {
-    match value["event"].as_str()? {
-        "file-loaded" => Some(PlayerEvent::Loaded),
-        "property-change" => match value["name"].as_str()? {
-            "time-pos" => value["data"]
-                .as_f64()
-                .filter(|v| v.is_finite() && *v >= 0.)
-                .map(PlayerEvent::Position),
-            "duration" => value["data"]
-                .as_f64()
-                .filter(|v| v.is_finite() && *v >= 0.)
-                .map(PlayerEvent::Duration),
-            "pause" => value["data"].as_bool().map(PlayerEvent::Paused),
-            "audio-device-list" => value["data"].as_array().map(|devices| {
-                PlayerEvent::Devices(
-                    devices
-                        .iter()
-                        .filter_map(|device| {
-                            Some((
-                                device["name"].as_str()?.to_owned(),
-                                device["description"].as_str()?.to_owned(),
-                            ))
-                        })
-                        .collect(),
-                )
-            }),
-            _ => None,
-        },
-        "end-file" if value["reason"] == "eof" => Some(PlayerEvent::Ended),
-        "end-file" if value["reason"] == "error" => Some(PlayerEvent::Error(
-            "This track could not be played. Try another track or update yt-dlp.".into(),
-        )),
-        _ => None,
-    }
 }

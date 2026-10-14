@@ -10,6 +10,7 @@ pub mod jiosaavn;
 pub mod library;
 pub mod links;
 pub mod lyrics;
+mod native_audio;
 pub mod organization;
 pub mod playback;
 pub mod queue;

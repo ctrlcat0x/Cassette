@@ -35,11 +35,11 @@ GitHub does not mark prereleases as **Latest**, so the repository sidebar may sh
 
 The published v0.5 beta downloads require separate playback tools. New builds from this branch embed these tools directly into each EXE, DMG and DEB:
 
-- [mpv](https://mpv.io/installation/) handles audio playback.
+- Native CPAL output and Symphonia decoding handle playback; libopus is statically linked for Opus support.
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp#installation) resolves YouTube audio.
 - [Deno](https://docs.deno.com/runtime/getting_started/installation/) supplies the JavaScript runtime used by yt-dlp.
 
-Keep these tools on your `PATH`. Cassette also checks beside its executable and in an adjacent `runtime` directory. You can set custom mpv and yt-dlp paths in **Settings**. Keep the tools current when providers change their playback requirements.
+Keep these tools on your `PATH`. Cassette also checks beside its executable and in an adjacent `runtime` directory. You can set a custom yt-dlp path in **Settings**. Keep the tools current when providers change their playback requirements.
 
 Google sign-in on Windows also needs the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/). You can browse without signing in; use the avatar menu to connect your YouTube Music account when you want library sync.
 
@@ -60,7 +60,7 @@ Also included: queue controls, crossfade, system media controls, optional JioSaa
 
 Install [stable Rust](https://rustup.rs/) and the native build dependencies for your platform:
 
-- **Windows:** Visual Studio C++ Build Tools and the Windows SDK.
+- **Windows:** Visual Studio C++ Build Tools, the Windows SDK and CMake.
 - **macOS:** Xcode Command Line Tools.
 - **Linux:** the GTK, WebKitGTK, graphics, audio, and D-Bus development packages listed in the [build workflow](.github/workflows/build.yml).
 
@@ -70,7 +70,7 @@ cd Cassette
 cargo run --release --locked
 ```
 
-For a self-contained build, install Python 3.12 plus mpv and patchelf on Linux, or Homebrew mpv on macOS. Windows needs 7-Zip. Then run:
+For a self-contained build, install Python 3.12 and CMake. No separate audio player is needed. Then run:
 
 ```sh
 python scripts/bundle-runtime.py

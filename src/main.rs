@@ -30,6 +30,16 @@ fn main() {
         eprintln!("Cassette could not protect local data: {error}");
         return;
     }
+    if let Some(path) = std::env::args()
+        .skip_while(|arg| arg != "--verify-audio")
+        .nth(1)
+    {
+        if let Err(error) = raag::playback::verify_native(&path) {
+            eprintln!("{error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if std::env::args_os().any(|arg| arg == "--verify-runtime") {
         if let Err(error) = raag::runtime::verify() {
             eprintln!("{error:#}");

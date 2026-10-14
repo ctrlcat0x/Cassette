@@ -64,7 +64,6 @@ pub struct Library {
     pub close_to_tray: bool,
     pub start_at_login: bool,
     pub immersive_artwork: bool,
-    pub mpv_path: String,
     pub ytdlp_path: String,
     pub cookies_path: String,
     pub stats: crate::stats::ListeningStats,
@@ -104,7 +103,6 @@ impl Default for Library {
             close_to_tray: false,
             start_at_login: false,
             immersive_artwork: true,
-            mpv_path: String::new(),
             ytdlp_path: String::new(),
             cookies_path: String::new(),
             stats: crate::stats::ListeningStats::default(),
@@ -146,6 +144,9 @@ impl Library {
         } else {
             70.
         };
+        if library.audio.output != "auto" && !library.audio.output.starts_with("native:") {
+            library.audio.output = "auto".into();
+        }
         library.audio.validate();
         library.session.validate();
         library.discovery_mode = library.discovery_mode.min(2);

@@ -863,7 +863,7 @@ impl Raag {
                     .icon(icon("more"))
                     .tooltip(t("Playlist actions"))
                     .accessibility_label(t("Playlist actions"))
-                    .dropdown_menu(move |mut menu, _, _| {
+                    .dropdown_menu(move |mut menu, window, cx| {
                         for (label, command) in [
                             (t("Add playing song"), 0),
                             (t("Rename playlist"), 1),
@@ -908,7 +908,14 @@ impl Raag {
                                     }),
                             );
                         }
-                        menu
+                        {
+                            let actions = owner
+                                .upgrade()
+                                .unwrap()
+                                .read(cx)
+                                .collection_actions(owner.clone());
+                            actions(menu, window, cx)
+                        }
                     }),
             );
         }
@@ -919,6 +926,24 @@ impl Raag {
                 .is_some_and(|page| page.editable)
         {
             actions = actions.child(self.account_playlist_menu(id, cx));
+        }
+        if matches!(self.screen, Screen::Collection(_, _, false)) && !self.page.editable {
+            let owner = cx.weak_entity();
+            actions = actions.child(
+                Button::new("collection-actions")
+                    .ghost()
+                    .icon(icon("more"))
+                    .tooltip(t("Playlist actions"))
+                    .accessibility_label(t("Playlist actions"))
+                    .dropdown_menu(move |menu, window, cx| {
+                        let actions = owner
+                            .upgrade()
+                            .unwrap()
+                            .read(cx)
+                            .collection_actions(owner.clone());
+                        actions(menu, window, cx)
+                    }),
+            );
         }
         let background = cx.theme().background;
         if artist {

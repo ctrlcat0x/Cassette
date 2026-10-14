@@ -34,65 +34,83 @@ impl Raag {
         self.apply_appearance(cx);
         self.save();
     }
+    fn set_language(&mut self, code: &'static str, window: &mut Window, cx: &mut Context<Self>) {
+        self.library.language = code.into();
+        raag::i18n::set_language(code);
+        gpui_kit::component::set_locale(code);
+        if let Some(system) = &self.system {
+            system.refresh_language();
+        }
+        for (input, placeholder) in [
+            (&self.query, "Search songs, artists, albums…"),
+            (&self.playlist_name, "Playlist name"),
+            (&self.organization_name, "Folder name"),
+            (&self.smart_name, "Smart playlist name"),
+            (&self.smart_query, "Song title, artist or album"),
+            (&self.smart_artist, "Any artist"),
+            (&self.smart_album, "Any album"),
+            (&self.browse_query, "Filter this collection…"),
+            (&self.ytdlp_path, "Automatic (yt-dlp on PATH or bundled)"),
+        ] {
+            input.update(cx, |input, cx| {
+                input.set_placeholder(t(placeholder), window, cx)
+            });
+        }
+        self.apply_appearance(cx);
+        self.save();
+    }
     pub(super) fn localization_settings(&self, cx: &mut Context<Self>) -> Div {
+        let owner = cx.weak_entity();
+        let selected = self.library.language.clone();
+        let label = match selected.as_str() {
+            "hi" => "हिन्दी",
+            "es" => "Español",
+            _ => "English",
+        };
+        let language = Button::new("language")
+            .accessibility_label(t("Language"))
+            .label(label)
+            .dropdown_menu(move |mut menu, _, _| {
+                for (code, label) in [("en", "English"), ("hi", "हिन्दी"), ("es", "Español")]
+                {
+                    let owner = owner.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(label)
+                            .checked(selected == code)
+                            .on_click(move |_, window, cx| {
+                                let _ = owner
+                                    .update(cx, |this, cx| this.set_language(code, window, cx));
+                            }),
+                    );
+                }
+                menu
+            });
+        let owner = cx.weak_entity();
+        let selected = self.library.ui_scale;
+        let scale = Button::new("interface-scale")
+            .accessibility_label(t("Interface scale"))
+            .label(format!("{:.0}%", selected * 100.))
+            .dropdown_menu(move |mut menu, _, _| {
+                for scale in [0.75f32, 0.9, 1., 1.1, 1.25, 1.5, 1.75] {
+                    let owner = owner.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(format!("{:.0}%", scale * 100.))
+                            .checked((selected - scale).abs() < 0.01)
+                            .on_click(move |_, window, cx| {
+                                let _ = owner
+                                    .update(cx, |this, cx| this.set_ui_scale(scale, window, cx));
+                            }),
+                    );
+                }
+                menu
+            });
         self.settings_section(
             t("Language and size"),
             t("Interface language and display scale"),
             cx,
         )
-        .child(
-            div().flex().flex_wrap().gap_2().children(
-                [("en", "English"), ("hi", "हिन्दी"), ("es", "Español")]
-                    .into_iter()
-                    .map(|(code, label)| {
-                        Button::new(code)
-                            .label(label)
-                            .selected(self.library.language == code)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.library.language = code.into();
-                                raag::i18n::set_language(code);
-                                gpui_kit::component::set_locale(code);
-                                if let Some(system) = &this.system {
-                                    system.refresh_language();
-                                }
-                                for (input, placeholder) in [
-                                    (&this.query, "Search songs, artists, albums…"),
-                                    (&this.playlist_name, "Playlist name"),
-                                    (&this.organization_name, "Folder name"),
-                                    (&this.smart_name, "Smart playlist name"),
-                                    (&this.smart_query, "Song title, artist or album"),
-                                    (&this.smart_artist, "Any artist"),
-                                    (&this.smart_album, "Any album"),
-                                    (&this.browse_query, "Filter this collection…"),
-                                    (&this.mpv_path, "Automatic (mpv on PATH or bundled)"),
-                                    (&this.ytdlp_path, "Automatic (yt-dlp on PATH or bundled)"),
-                                ] {
-                                    input.update(cx, |input, cx| {
-                                        input.set_placeholder(t(placeholder), window, cx)
-                                    });
-                                }
-                                this.apply_appearance(cx);
-                                this.save();
-                            }))
-                    }),
-            ),
-        )
-        .child(div().text_sm().child(t("Interface scale")))
-        .child(
-            div().flex().flex_wrap().gap_2().children(
-                [0.75f32, 0.9, 1., 1.1, 1.25, 1.5, 1.75]
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, scale)| {
-                        Button::new(("interface-scale", i))
-                            .label(format!("{:.0}%", scale * 100.))
-                            .selected((self.library.ui_scale - scale).abs() < 0.01)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.set_ui_scale(scale, window, cx);
-                            }))
-                    }),
-            ),
-        )
+        .child(self.setting_row(t("Language"), language, cx))
+        .child(self.setting_row(t("Interface scale"), scale, cx))
     }
 
     pub(super) fn organization_controls(&self, cx: &mut Context<Self>) -> Div {
@@ -103,25 +121,9 @@ impl Raag {
             .and_then(|id| self.library.folders.iter().find(|f| &f.id == id))
             .and_then(|f| f.parent.clone());
         let mut body = div().flex().flex_col().gap_3().flex_shrink_0();
-        let mut folders = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap_2()
-            .child(
-                Button::new("all-folders")
-                    .ghost()
-                    .label(t("All playlists"))
-                    .selected(self.library.active_folder.is_none())
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.library.active_folder = None;
-                        this.navigation_revision += 1;
-                        this.save();
-                        this.content_revision += 1;
-                        cx.notify();
-                    })),
-            )
-            .when(self.library.active_folder.is_some(), |row| {
+        let mut folders = div().flex().flex_wrap().items_center().gap_2().when(
+            self.library.active_folder.is_some(),
+            |row| {
                 row.child(
                     Button::new("parent-folder")
                         .ghost()
@@ -134,7 +136,8 @@ impl Raag {
                             cx.notify();
                         })),
                 )
-            });
+            },
+        );
         folders = folders.child(
             div()
                 .id("root-folder-drop")
@@ -142,7 +145,20 @@ impl Raag {
                 .py_2()
                 .rounded_lg()
                 .text_sm()
-                .child(t("Drop here to remove from folder"))
+                .child(
+                    Button::new("all-folders")
+                        .ghost()
+                        .label(t("All playlists"))
+                        .selected(self.library.active_folder.is_none())
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.library.active_folder = None;
+                            this.folder_editor = false;
+                            this.navigation_revision += 1;
+                            this.content_revision += 1;
+                            this.save();
+                            cx.notify();
+                        })),
+                )
                 .drag_over::<PlaylistDrag>(|s, _, _, cx| s.bg(cx.theme().accent))
                 .drag_over::<FolderDrag>(|s, _, _, cx| s.bg(cx.theme().accent))
                 .on_drop(cx.listener(|this, drag: &PlaylistDrag, _, cx| {
@@ -278,7 +294,7 @@ impl Raag {
                     }),
             );
         }
-        body = body.child(folders).child(
+        body = body.when(!self.library.folders.is_empty(), |body| body.child(folders)).when(self.folder_editor, |body| body.child(
             div()
                 .flex()
                 .flex_wrap()
@@ -292,83 +308,28 @@ impl Raag {
                 )
                 .child(
                     Button::new("create-folder")
-                        .label(t("New folder"))
+                        .primary().label(if self.folder_rename { t("Rename folder") } else { t("New folder") })
                         .on_click(cx.listener(|this, _, _, cx| {
                             let name = this.organization_name.read(cx).value().to_string();
-                            if let Err(error) = this
-                                .library
-                                .create_folder(&name, this.library.active_folder.clone())
-                            {
-                                this.notice = Some(error.to_string());
+                            if this.folder_rename {
+                                let name = name.trim();
+                                if name.is_empty() || name.chars().count() > 100 { this.notice = Some(t("Enter a folder name between 1 and 100 characters.").into()); this.content_revision += 1; cx.notify(); return; }
+                                if let Some(folder) = this.library.folders.iter_mut().find(|folder| Some(&folder.id) == this.library.active_folder.as_ref()) { folder.name = name.to_owned(); }
+                            } else if let Err(error) = this.library.create_folder(&name, this.library.active_folder.clone()) {
+                                this.notice = Some(error.to_string()); this.content_revision += 1; cx.notify(); return;
                             }
+                            this.folder_editor = false;
                             this.navigation_revision += 1;
                             this.save();
                             this.content_revision += 1;
                             cx.notify();
                         })),
                 )
-                .when(self.library.active_folder.is_some(), |row| {
-                    row.child(
-                        Button::new("rename-folder")
-                            .ghost()
-                            .label(t("Rename folder"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let name =
-                                    this.organization_name.read(cx).value().trim().to_owned();
-                                if name.is_empty() || name.chars().count() > 100 {
-                                    this.notice = Some(
-                                        t("Enter a folder name between 1 and 100 characters.")
-                                            .into(),
-                                    );
-                                } else if let Some(folder) =
-                                    this.library.folders.iter_mut().find(|f| {
-                                        Some(&f.id) == this.library.active_folder.as_ref()
-                                    })
-                                {
-                                    folder.name = name;
-                                }
-                                this.navigation_revision += 1;
-                                this.save();
-                                this.content_revision += 1;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("remove-folder")
-                            .ghost()
-                            .label(t("Remove folder, keep playlists"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                if let Some(id) = this.library.active_folder.clone() {
-                                    this.library.remove_folder(&id);
-                                }
-                                this.navigation_revision += 1;
-                                this.save();
-                                this.content_revision += 1;
-                                cx.notify();
-                            })),
-                    )
-                })
                 .child(
-                    Button::new("new-smart-playlist")
-                        .label(t("New smart playlist"))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.editing_smart = Some(String::new());
-                            this.smart_source = 0;
-                            this.smart_exclude_explicit = false;
-                            for input in [
-                                &this.smart_name,
-                                &this.smart_query,
-                                &this.smart_artist,
-                                &this.smart_album,
-                                &this.smart_plays,
-                            ] {
-                                input.update(cx, |input, cx| input.set_value("", window, cx));
-                            }
-                            this.content_revision += 1;
-                            cx.notify();
-                        })),
+                    Button::new("cancel-folder-editor").ghost().label(t("Cancel"))
+                        .on_click(cx.listener(|this, _, _, cx| { this.folder_editor = false; this.content_revision += 1; cx.notify(); })),
                 ),
-        );
+        ));
         if self.editing_smart.is_some() {
             body = body.child(self.smart_editor(cx));
         }
@@ -417,108 +378,133 @@ impl Raag {
                 .child(Button::new("cancel-smart").ghost().label(t("Cancel")).on_click(cx.listener(|this, _, _, cx| { this.editing_smart = None; this.content_revision += 1; cx.notify(); }))))
     }
     pub(super) fn playlist_organization_tools(&self, cx: &mut Context<Self>) -> Div {
-        let Screen::Collection(id, _, local) = &self.screen else {
-            return div();
+        div().when(self.editing_smart.is_some(), |body| {
+            body.child(self.smart_editor(cx))
+        })
+    }
+    pub(super) fn collection_actions(
+        &self,
+        owner: WeakEntity<Self>,
+    ) -> impl FnOnce(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + use<> {
+        let collection = match &self.screen {
+            Screen::Collection(id, name, local) => Some((id.clone(), name.clone(), *local)),
+            _ => None,
         };
-        let key = id.strip_prefix("VL").unwrap_or(id).to_owned();
-        let current = self
-            .library
-            .playlist_metadata
-            .get(&key)
-            .and_then(|m| m.folder.clone());
-        let meta_key = key.clone();
-        let cover_key = key.clone();
-        let remove_cover = key.clone();
-        let mut row = div()
-            .flex()
-            .flex_wrap()
-            .gap_2()
-            .items_center()
-            .child(
-                Button::new("playlist-folder")
-                    .ghost()
-                    .label(tr!(
-                        "Folder: {}",
-                        current
-                            .as_ref()
-                            .and_then(|id| self.library.folders.iter().find(|f| &f.id == id))
-                            .map_or(t("None"), |f| f.name.as_str())
-                    ))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        let folders: Vec<_> = std::iter::once(None)
-                            .chain(this.library.folders.iter().map(|f| Some(f.id.clone())))
-                            .collect();
-                        let current = this
-                            .library
-                            .playlist_metadata
-                            .entry(meta_key.clone())
-                            .or_default();
-                        let index = folders
-                            .iter()
-                            .position(|f| *f == current.folder)
-                            .unwrap_or(0);
-                        current.folder = folders[(index + 1) % folders.len()].clone();
-                        this.navigation_revision += 1;
-                        this.save();
-                        this.content_revision += 1;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                Button::new("custom-playlist-cover")
-                    .ghost()
-                    .label(t("Choose cover on this device…"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.choose_playlist_cover(cover_key.clone(), cx)
-                    })),
-            )
-            .child(
-                Button::new("clear-playlist-cover")
-                    .ghost()
-                    .label(t("Reset cover"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.library
-                            .playlist_metadata
-                            .entry(remove_cover.clone())
-                            .or_default()
-                            .cover = None;
-                        this.navigation_revision += 1;
-                        this.save();
-                        this.content_revision += 1;
-                        this.content_revision += 1;
-                        cx.notify();
-                    })),
-            );
-        if *local {
-            let clean_id = id.clone();
-            row = row.child(
-                Button::new("clean-playlist")
-                    .ghost()
-                    .label(t("Remove duplicate songs"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        let count = this.library.deduplicate_playlist(&clean_id);
-                        this.notice = Some(tr!("Removed {count} duplicate songs"));
-                        this.save();
-                        this.refresh_visible();
-                        this.navigation_revision += 1;
-                        this.content_revision += 1;
-                        cx.notify();
-                    })),
-            );
-            if let Some(rule) = self
-                .library
-                .playlists
-                .iter()
-                .find(|p| p.id == *id)
-                .and_then(|p| p.smart.clone())
-            {
-                let edit_id = id.clone();
-                let name = self.screen.title().to_owned();
-                row = row.child(
-                    Button::new("edit-smart-rule")
-                        .label(t("Edit smart rules"))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.editing_smart = Some(edit_id.clone());
+        let key = collection
+            .as_ref()
+            .map(|(id, _, _)| id.strip_prefix("VL").unwrap_or(id));
+        let folders = self.library.folders.clone();
+        let current = key
+            .and_then(|id| self.library.playlist_metadata.get(id))
+            .and_then(|meta| meta.folder.clone());
+        let rule = collection
+            .as_ref()
+            .and_then(|(id, _, _)| {
+                self.library
+                    .playlists
+                    .iter()
+                    .find(|playlist| &playlist.id == id)
+            })
+            .and_then(|playlist| playlist.smart.clone());
+        let editable = self.page.editable;
+        move |mut menu, window, cx| {
+            let Some((id, name, local)) = collection else {
+                return menu;
+            };
+            let key = id.strip_prefix("VL").unwrap_or(&id).to_owned();
+            if !local {
+                let link = if id.starts_with("MPRE") {
+                    raag::links::Link::Album(id.clone())
+                } else if id.starts_with("UC") {
+                    raag::links::Link::Artist(id.clone())
+                } else {
+                    raag::links::Link::Playlist(key.clone())
+                };
+                menu = menu.item(PopupMenuItem::new(t("Copy music link")).on_click(
+                    move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(link.public_url()));
+                    },
+                ));
+            }
+            if !local && (id.starts_with("MPRE") || id.starts_with("UC")) {
+                return menu;
+            }
+            let choices: Vec<_> = std::iter::once((None, t("None").to_owned()))
+                .chain(
+                    folders
+                        .iter()
+                        .map(|folder| (Some(folder.id.clone()), folder.name.clone())),
+                )
+                .collect();
+            let folder_owner = owner.clone();
+            let folder_key = key.clone();
+            menu =
+                menu.separator()
+                    .submenu(t("Move to folder"), window, cx, move |mut menu, _, _| {
+                        for (folder, name) in &choices {
+                            let owner = folder_owner.clone();
+                            let key = folder_key.clone();
+                            let folder = folder.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(name.clone())
+                                    .checked(folder == current)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = owner.update(cx, |this, cx| {
+                                            this.library
+                                                .playlist_metadata
+                                                .entry(key.clone())
+                                                .or_default()
+                                                .folder = folder.clone();
+                                            this.navigation_revision += 1;
+                                            this.content_revision += 1;
+                                            this.save();
+                                            cx.notify();
+                                        });
+                                    }),
+                            );
+                        }
+                        menu
+                    });
+            for (label, command) in [
+                (t("Choose cover on this device…"), 0),
+                (t("Reset cover"), 1),
+            ] {
+                let owner = owner.clone();
+                let key = key.clone();
+                menu = menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                    let _ = owner.update(cx, |this, cx| {
+                        if command == 0 {
+                            this.choose_playlist_cover(key.clone(), cx);
+                        } else {
+                            this.library
+                                .playlist_metadata
+                                .entry(key.clone())
+                                .or_default()
+                                .cover = None;
+                            this.navigation_revision += 1;
+                            this.content_revision += 1;
+                            this.save();
+                            cx.notify();
+                        }
+                    });
+                }));
+            }
+            if local || editable {
+                let owner = owner.clone();
+                menu = menu.item(PopupMenuItem::new(t("Remove duplicate songs")).on_click(
+                    move |_, _, cx| {
+                        let _ = owner.update(cx, |this, cx| this.deduplicate_visible_playlist(cx));
+                    },
+                ));
+            }
+            if local && let Some(rule) = rule {
+                let owner = owner.clone();
+                let id = id.clone();
+                let name = name.clone();
+                menu = menu.item(PopupMenuItem::new(t("Edit smart rules")).on_click(
+                    move |_, window, cx| {
+                        let _ = owner.update(cx, |this, cx| {
+                            this.editing_smart = Some(id.clone());
                             this.smart_source = rule.source.min(3);
                             this.smart_exclude_explicit = rule.exclude_explicit;
                             for (input, value) in [
@@ -532,57 +518,51 @@ impl Raag {
                             }
                             this.content_revision += 1;
                             cx.notify();
-                        })),
-                );
+                        });
+                    },
+                ));
             }
-        } else if self.page.editable {
-            let id = id.clone();
-            row = row.child(
-                Button::new("clean-remote-playlist")
-                    .disabled(self.account.busy_edits() || !self.pending_edits.is_empty())
-                    .ghost()
-                    .label(t("Remove duplicate songs"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        let Some(page) = this
-                            .account
-                            .page(&crate::account_sync::Key::Playlist(id.clone()))
-                        else {
-                            return;
-                        };
-                        if page.continuation.is_some() {
-                            this.notice = Some(
-                                t("Load the entire playlist before removing duplicates.").into(),
-                            );
-                            this.content_revision += 1;
-                            cx.notify();
-                            return;
-                        }
-                        let mut seen = std::collections::HashSet::new();
-                        let tracks: Vec<_> = page
-                            .tracks
-                            .iter()
-                            .filter(|t| !seen.insert(t.id.clone()))
-                            .cloned()
-                            .collect();
-                        for chunk in tracks.chunks(100) {
-                            this.pending_edits.push_back(Edit::RemoveMany {
-                                playlist: id.clone(),
-                                tracks: chunk.to_vec(),
-                            });
-                        }
-                        this.content_revision += 1;
-                        cx.notify();
-                    })),
-            );
+            menu
         }
-        div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(row)
-            .when(self.editing_smart.is_some(), |body| {
-                body.child(self.smart_editor(cx))
-            })
+    }
+    fn deduplicate_visible_playlist(&mut self, cx: &mut Context<Self>) {
+        let Screen::Collection(id, _, local) = &self.screen else {
+            return;
+        };
+        if *local {
+            let count = self.library.deduplicate_playlist(id);
+            self.notice = Some(tr!("Removed {count} duplicate songs"));
+            self.save();
+            self.refresh_visible();
+            self.navigation_revision += 1;
+        } else if !self.account.busy_edits() && self.pending_edits.is_empty() {
+            let Some(page) = self
+                .account
+                .page(&crate::account_sync::Key::Playlist(id.clone()))
+            else {
+                return;
+            };
+            if page.continuation.is_some() {
+                self.notice =
+                    Some(t("Load the entire playlist before removing duplicates.").into());
+            } else {
+                let mut seen = std::collections::HashSet::new();
+                let tracks: Vec<_> = page
+                    .tracks
+                    .iter()
+                    .filter(|track| !seen.insert(track.id.clone()))
+                    .cloned()
+                    .collect();
+                for chunk in tracks.chunks(100) {
+                    self.pending_edits.push_back(Edit::RemoveMany {
+                        playlist: id.clone(),
+                        tracks: chunk.to_vec(),
+                    });
+                }
+            }
+        }
+        self.content_revision += 1;
+        cx.notify();
     }
     fn choose_playlist_cover(&mut self, id: String, cx: &mut Context<Self>) {
         let prompt = cx.prompt_for_paths(PathPromptOptions {
@@ -828,34 +808,155 @@ impl Raag {
                     .copied()
                     .unwrap_or(self.library.lyrics.offset_ms)
             });
-        div().flex().flex_col().gap_3()
-            .child(Button::new("lyrics-source").label(tr!("Lyrics provider: {}", self.library.lyrics.source.label())).on_click(cx.listener(|this, _, _, cx| {
-                this.library.lyrics.source = this.library.lyrics.source.next(); this.reload_lyrics(); this.save(); this.refresh_lyrics_display(cx);
-            })))
-            .child(Switch::new("word-lyrics").label(t("Highlight words and syllables")).checked(self.library.lyrics.words).on_change(cx.listener(|this, value, _, cx| { this.library.lyrics.words = *value; this.lyrics_revision += 1; this.save(); this.refresh_lyrics_display(cx); })))
-            .child(Switch::new("translated-lyrics").label(t("Show available translations")).checked(self.library.lyrics.translations).on_change(cx.listener(|this, value, _, cx| { this.library.lyrics.translations = *value; this.lyrics_revision += 1; this.save(); this.refresh_lyrics_display(cx); })))
-            .child(Switch::new("romanized-lyrics").label(t("Show available romanization")).checked(self.library.lyrics.romanization).on_change(cx.listener(|this, value, _, cx| { this.library.lyrics.romanization = *value; this.lyrics_revision += 1; this.save(); this.refresh_lyrics_display(cx); })))
-            .child(div().text_sm().text_color(cx.theme().muted_foreground).child(t("Word timing and translations appear only when supplied by the lyric source.")))
-            .child(div().flex().flex_wrap().items_center().gap_2()
+        let owner = cx.weak_entity();
+        let mut body = div().flex().flex_col().gap_1()
+            .child(self.setting_row(t("Lyrics provider"), Button::new("lyrics-source").accessibility_label(t("Lyrics provider")).label(self.library.lyrics.source.label())
+                .dropdown_menu(move |mut menu, _, _| {
+                    use raag::lyrics::Source;
+                    for value in Source::ALL {
+                        let owner = owner.clone();
+                        menu = menu.item(PopupMenuItem::new(value.label()).on_click(move |_, _, cx| { let _ = owner.update(cx, |this, cx| {
+                            this.library.lyrics.source = value; this.reload_lyrics(); this.save(); this.refresh_lyrics_display(cx);
+                        }); }));
+                    } menu
+                }), cx))
+            .child(self.setting_row(t("Highlight words and syllables"), Switch::new("word-lyrics").accessibility_label(t("Highlight words and syllables")).checked(self.library.lyrics.words).on_change(cx.listener(|this, value, _, cx| { this.library.lyrics.words = *value; this.save(); this.refresh_lyrics_display(cx); })), cx))
+            .child(self.setting_row(t("Show available translations"), Switch::new("translated-lyrics").accessibility_label(t("Show available translations")).checked(self.library.lyrics.translations).on_change(cx.listener(|this, value, _, cx| { this.library.lyrics.translations = *value; this.save(); this.refresh_lyrics_display(cx); })), cx))
+            .child(self.setting_row(t("Show available romanization"), Switch::new("romanized-lyrics").accessibility_label(t("Show available romanization")).checked(self.library.lyrics.romanization).on_change(cx.listener(|this, value, _, cx| { this.library.lyrics.romanization = *value; this.save(); this.refresh_lyrics_display(cx); })), cx))
+            .child(div().text_sm().py_3().text_color(cx.theme().muted_foreground).child(t("Word timing and translations appear only when supplied by the lyric source.")));
+        let owner = cx.weak_entity();
+        body = body.child(
+            self.setting_row(
+                t("Lyrics text size"),
+                Button::new("lyric-text-scale")
+                    .accessibility_label(t("Lyrics text size"))
+                    .label(format!("{:.0}%", self.library.lyrics.text_scale * 100.))
+                    .dropdown_menu(move |mut menu, _, _| {
+                        for scale in [0.75f32, 1., 1.25, 1.5, 1.75] {
+                            let owner = owner.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(format!("{:.0}%", scale * 100.)).on_click(
+                                    move |_, _, cx| {
+                                        let _ = owner.update(cx, |this, cx| {
+                                            this.library.lyrics.text_scale = scale;
+                                            this.lyrics_active = None;
+                                            this.save();
+                                            this.refresh_lyrics_display(cx);
+                                        });
+                                    },
+                                ),
+                            );
+                        }
+                        menu
+                    }),
+                cx,
+            ),
+        );
+        body.child(
+            div().pt_5().pb_2().font_weight(FontWeight::SEMIBOLD).child(
+                self.selected
+                    .as_ref()
+                    .map_or(t("Default timing").to_owned(), |track| track.title.clone()),
+            ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap_2()
                 .child(div().text_sm().child(tr!("Lyrics offset: {offset} ms")))
-                .children([-100, 100].into_iter().map(|delta| Button::new(SharedString::from(format!("lyric-offset-{delta}"))).label(if delta < 0 { t("Earlier") } else { t("Later") }).on_click(cx.listener(move |this, _, _, cx| {
-                    if let Some(track) = &this.selected { let value = this.library.lyrics.track_offsets.entry(track.id.clone()).or_insert(this.library.lyrics.offset_ms); *value = (*value + delta).clamp(-30_000, 30_000); }
-                    else { this.library.lyrics.offset_ms = (this.library.lyrics.offset_ms + delta).clamp(-30_000, 30_000); }
-                    this.lyrics_active = None; this.lyrics_revision += 1; this.save(); this.refresh_lyrics_display(cx);
-                }))))
-                .child(Button::new("reset-lyric-offset").ghost().label(t("Reset offset")).on_click(cx.listener(|this, _, _, cx| {
-                    if let Some(track) = &this.selected { this.library.lyrics.track_offsets.remove(&track.id); } else { this.library.lyrics.offset_ms = 0; }
-                    this.lyrics_active = None; this.save(); this.refresh_lyrics_display(cx);
-                }))))
-            .child(div().text_sm().text_color(cx.theme().muted_foreground).child(if selected { t("Offset is saved for the current song. Positive values show lyrics earlier.") } else { t("Play a song to adjust its timing. This setting changes the default offset.") }))
-            .child(Button::new("lyric-text-scale").label(tr!("Lyrics text size: {:.0}%", self.library.lyrics.text_scale * 100.)).on_click(cx.listener(|this, _, _, cx| { this.library.lyrics.text_scale = if this.library.lyrics.text_scale >= 1.75 { 0.75 } else { this.library.lyrics.text_scale + 0.25 }; this.lyrics_active = None; this.save(); this.refresh_lyrics_display(cx); })))
-            .child(div().flex().flex_wrap().gap_2()
-                .child(Button::new("reload-lyrics").label(t("Reload lyrics")).disabled(!selected).on_click(cx.listener(|this, _, _, cx| { this.reload_lyrics(); this.refresh_lyrics_display(cx); })))
-                .child(Button::new("import-lyrics").label(t("Import corrected lyrics…")).disabled(!selected).on_click(cx.listener(|this, _, _, cx| this.import_lyrics(cx))))
-                .child(Button::new("clear-lyric-override").ghost().label(t("Use provider lyrics")).disabled(!selected).on_click(cx.listener(|this, _, _, cx| {
-                    if let Some(track) = &this.selected { let path = data_dir().join("lyric-overrides").join(format!("{}.json", raag::cache::key(&track.id))); if let Err(error) = std::fs::remove_file(path) && error.kind() != std::io::ErrorKind::NotFound { this.notice = Some(error.to_string()); this.refresh_lyrics_display(cx); return; } }
-                    this.reload_lyrics(); this.refresh_lyrics_display(cx);
-                }))))
+                .children([-100, 100].into_iter().map(|delta| {
+                    Button::new(SharedString::from(format!("lyric-offset-{delta}")))
+                        .label(if delta < 0 { t("Earlier") } else { t("Later") })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(track) = &this.selected {
+                                let value = this
+                                    .library
+                                    .lyrics
+                                    .track_offsets
+                                    .entry(track.id.clone())
+                                    .or_insert(this.library.lyrics.offset_ms);
+                                *value = (*value + delta).clamp(-30_000, 30_000);
+                            } else {
+                                this.library.lyrics.offset_ms =
+                                    (this.library.lyrics.offset_ms + delta).clamp(-30_000, 30_000);
+                            }
+                            this.lyrics_active = None;
+                            this.lyrics_revision += 1;
+                            this.save();
+                            this.refresh_lyrics_display(cx);
+                        }))
+                }))
+                .child(
+                    Button::new("reset-lyric-offset")
+                        .ghost()
+                        .label(t("Reset offset"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(track) = &this.selected {
+                                this.library.lyrics.track_offsets.remove(&track.id);
+                            } else {
+                                this.library.lyrics.offset_ms = 0;
+                            }
+                            this.lyrics_active = None;
+                            this.save();
+                            this.refresh_lyrics_display(cx);
+                        })),
+                ),
+        )
+        .child(
+            div()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child(if selected {
+                    t("Offset is saved for the current song. Positive values show lyrics earlier.")
+                } else {
+                    t("Play a song to adjust its timing. This setting changes the default offset.")
+                }),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .gap_2()
+                .child(
+                    Button::new("reload-lyrics")
+                        .label(t("Reload lyrics"))
+                        .disabled(!selected)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.reload_lyrics();
+                            this.refresh_lyrics_display(cx);
+                        })),
+                )
+                .child(
+                    Button::new("import-lyrics")
+                        .label(t("Import corrected lyrics…"))
+                        .disabled(!selected)
+                        .on_click(cx.listener(|this, _, _, cx| this.import_lyrics(cx))),
+                )
+                .child(
+                    Button::new("clear-lyric-override")
+                        .ghost()
+                        .label(t("Use provider lyrics"))
+                        .disabled(!selected)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(track) = &this.selected {
+                                let path = data_dir()
+                                    .join("lyric-overrides")
+                                    .join(format!("{}.json", raag::cache::key(&track.id)));
+                                if let Err(error) = std::fs::remove_file(path)
+                                    && error.kind() != std::io::ErrorKind::NotFound
+                                {
+                                    this.notice = Some(error.to_string());
+                                    this.refresh_lyrics_display(cx);
+                                    return;
+                                }
+                            }
+                            this.reload_lyrics();
+                            this.refresh_lyrics_display(cx);
+                        })),
+                ),
+        )
     }
     pub(super) fn move_track_to(
         &mut self,

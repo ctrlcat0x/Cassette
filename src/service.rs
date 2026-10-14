@@ -500,6 +500,11 @@ fn dispatch_requests(
                 .ok()
                 .and_then(|file| raag::resource::json(file, raag::resource::PAGE_BYTES).ok())
         };
+        let incomplete_artists = cached.as_ref().is_some_and(|page| {
+            page.tracks
+                .iter()
+                .any(|track| track.kind == raag::ItemKind::Song && track.artist.trim().is_empty())
+        });
         let has_cache = cached.is_some();
         if let Some(page) = cached
             && auth.current(snapshot.generation)
@@ -509,7 +514,7 @@ fn dispatch_requests(
         }
         if has_cache
             && (raag::cache::offline_only()
-                || raag::cache::metadata_fresh(&path, request_ttl(&request)))
+                || !incomplete_artists && raag::cache::metadata_fresh(&path, request_ttl(&request)))
         {
             continue;
         }

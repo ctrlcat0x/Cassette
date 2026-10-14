@@ -47,7 +47,7 @@ impl Quality {
     }
 }
 
-/// Validated data only; never interpolate arbitrary user text into mpv filters.
+/// Validated audio preferences shared by native playback and downloads.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AudioSettings {
@@ -93,21 +93,5 @@ impl AudioSettings {
         {
             self.output = "auto".into();
         }
-    }
-    pub fn filters(&self) -> Vec<String> {
-        let mut filters = vec![];
-        if self.normalize {
-            filters.push("lavfi=[dynaudnorm=f=100:g=5:p=0.9:m=6]".into());
-        }
-        let boost = self.equalizer.into_iter().fold(0f64, f64::max);
-        if boost > 0. {
-            filters.push(format!("lavfi=[volume=-{}dB]", boost + 1.));
-        }
-        for (frequency, gain) in [60, 230, 910, 3600, 14000].into_iter().zip(self.equalizer) {
-            if gain != 0. {
-                filters.push(format!("lavfi=[equalizer=f={frequency}:t=o:w=1:g={gain}]"));
-            }
-        }
-        filters
     }
 }

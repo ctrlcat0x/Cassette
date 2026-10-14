@@ -575,14 +575,6 @@ impl Raag {
                         })),
                 )
             })
-            .when(matches!(self.screen, Screen::Collection(_, _, false)), |body| {
-                let Screen::Collection(id, _, _) = &self.screen else { return body; };
-                let link = if id.starts_with("MPRE") { raag::links::Link::Album(id.clone()) }
-                    else if id.starts_with("UC") { raag::links::Link::Artist(id.clone()) }
-                    else { raag::links::Link::Playlist(id.strip_prefix("VL").unwrap_or(id).to_owned()) };
-                body.child(Button::new("copy-collection-link").ghost().label(t("Copy music link"))
-                    .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(link.public_url()))))
-            })
             .child(self.playlist_organization_tools(cx))
     }
     fn remove_selected(&mut self, cx: &mut Context<Self>) {
@@ -683,122 +675,203 @@ impl Raag {
     }
     pub(super) fn audio_controls(&self, window: &Window, cx: &mut Context<Self>) -> Div {
         let owner = cx.weak_entity();
-        let devices = self.audio_devices.clone();
+        let mut devices = self.audio_devices.clone();
+        for (id, name) in &mut devices {
+            if id == "auto" {
+                *name = t("System default").to_owned();
+            }
+        }
         let selected = self.library.audio.output.clone();
-        let mut body = div()
-            .flex()
-            .flex_col()
-            .gap_4()
-            .child(Switch::new("jiosaavn-source").label(t("Try JioSaavn audio first"))
-                .checked(self.library.audio.jiosaavn)
-                .on_change(cx.listener(|this, value, _, cx| { this.library.audio.jiosaavn = *value; this.apply_audio(cx); })))
-            .child(div().text_sm().text_color(cx.theme().muted_foreground)
-                .child(t("YouTube Music provides your catalog and library. JioSaavn can provide matching AAC audio up to 320 kb/s; YouTube is the fallback.")))
-            .child(Button::new("streaming-quality").label(tr!("Streaming quality: {}", self.library.audio.streaming_quality.label()))
-                .on_click(cx.listener(|this, _, _, cx| { this.library.audio.streaming_quality = this.library.audio.streaming_quality.next(); this.apply_audio(cx); })))
-            .child(Button::new("download-quality").label(tr!("Download quality: {}", self.library.audio.download_quality.label()))
-                .on_click(cx.listener(|this, _, _, cx| { this.library.audio.download_quality = this.library.audio.download_quality.next(); this.apply_audio(cx); })))
-            .child(div().text_sm().text_color(cx.theme().muted_foreground).child(t("Applies to newly fetched audio. Existing downloads and the buffered next song are kept. Quality depends on the available recording and source.")))
-            .child(
-                Switch::new("normalize")
-                    .label(t("Normalize loudness"))
-                    .checked(self.library.audio.normalize)
-                    .on_change(cx.listener(|this, value, _, cx| {
-                        this.library.audio.normalize = *value;
-                        this.apply_audio(cx);
-                    })),
-            )
-            .child(
-                Button::new("audio-output")
-                    .label(tr!(
-                        "Output: {}",
-                        devices
-                            .iter()
-                            .find(|(id, _)| id == &selected)
-                            .map_or(t("System default"), |(_, name)| name.as_str())
-                    ))
+        let mut body = div().flex().flex_col().gap_1()
+            .child(self.setting_row(t("Try JioSaavn audio first"), Switch::new("jiosaavn-source").accessibility_label(t("Try JioSaavn audio first"))
+                .checked(self.library.audio.jiosaavn).on_change(cx.listener(|this, value, _, cx| {
+                    this.library.audio.jiosaavn = *value; this.apply_audio(cx);
+                })), cx))
+            .child(div().text_sm().text_color(cx.theme().muted_foreground).child(t("YouTube Music provides your catalog and library. JioSaavn can provide matching AAC audio up to 320 kb/s; YouTube is the fallback.")));
+        for download in [false, true] {
+            let selected = if download {
+                self.library.audio.download_quality
+            } else {
+                self.library.audio.streaming_quality
+            };
+            let owner = cx.weak_entity();
+            body = body.child(
+                self.setting_row(
+                    if download {
+                        t("Download quality")
+                    } else {
+                        t("Streaming quality")
+                    },
+                    Button::new(if download {
+                        "download-quality"
+                    } else {
+                        "streaming-quality"
+                    })
+                    .accessibility_label(if download {
+                        tr!("Download quality: {}", selected.label())
+                    } else {
+                        tr!("Streaming quality: {}", selected.label())
+                    })
+                    .label(selected.label())
                     .dropdown_menu(move |mut menu, _, _| {
-                        for (id, name) in
-                            std::iter::once(("auto".to_owned(), t("System default").to_owned()))
-                                .chain(devices.clone())
-                        {
+                        for value in [
+                            raag::audio_settings::Quality::DataSaver,
+                            raag::audio_settings::Quality::Standard,
+                            raag::audio_settings::Quality::Best,
+                        ] {
                             let owner = owner.clone();
-                            menu = menu.item(PopupMenuItem::new(name).on_click(move |_, _, cx| {
-                                let _ = owner.update(cx, |this, cx| {
-                                    this.library.audio.output = id.clone();
-                                    this.apply_audio(cx);
-                                });
-                            }));
+                            menu = menu.item(
+                                PopupMenuItem::new(value.label())
+                                    .checked(value == selected)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = owner.update(cx, |this, cx| {
+                                            if download {
+                                                this.library.audio.download_quality = value;
+                                            } else {
+                                                this.library.audio.streaming_quality = value;
+                                            }
+                                            this.apply_audio(cx);
+                                        });
+                                    }),
+                            );
                         }
                         menu
                     }),
-            );
-        body = body.child(self.equalizer_graph(window, cx)).child(
-            Button::new("crossfade")
-                .label(tr!(
-                    "Crossfade: {:.0} seconds",
-                    self.library.audio.crossfade
-                ))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.library.audio.crossfade = (this.library.audio.crossfade + 2.) % 12.;
-                    this.apply_audio(cx);
-                })),
-        );
-        let mut timer = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap_2()
-            .child(t("Sleep timer"));
-        for minutes in [15usize, 30, 60] {
-            timer = timer.child(
-                Button::new(("sleep", minutes))
-                    .ghost()
-                    .label(tr!("{minutes} min"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.sleep_until =
-                            Some(Instant::now() + Duration::from_secs(minutes as u64 * 60));
-                        this.sleep_end = false;
-                        this.content_revision += 1;
-                        cx.notify();
-                    })),
+                    cx,
+                ),
             );
         }
-        body.child(
-            timer
-                .child(
-                    Button::new("sleep-end")
-                        .ghost()
-                        .label(t("End of song"))
-                        .selected(self.sleep_end)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.sleep_end = true;
-                            this.sleep_until = None;
-                            this.content_revision += 1;
-                            cx.notify();
+        body = body
+            .child(
+                self.setting_row(
+                    t("Normalize loudness"),
+                    Switch::new("normalize")
+                        .accessibility_label(t("Normalize loudness"))
+                        .checked(self.library.audio.normalize)
+                        .on_change(cx.listener(|this, value, _, cx| {
+                            this.library.audio.normalize = *value;
+                            this.apply_audio(cx);
                         })),
-                )
-                .child(
-                    Button::new("sleep-cancel")
-                        .ghost()
-                        .label(t("Cancel"))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.sleep_until = None;
-                            this.sleep_end = false;
-                            this.content_revision += 1;
-                            cx.notify();
-                        })),
+                    cx,
                 ),
+            )
+            .child(
+                self.setting_row(
+                    t("Audio output"),
+                    Button::new("audio-output")
+                        .accessibility_label(t("Audio output"))
+                        .label(
+                            devices
+                                .iter()
+                                .find(|(id, _)| id == &selected)
+                                .map_or(t("System default").to_owned(), |(_, name)| name.clone()),
+                        )
+                        .dropdown_menu(move |mut menu, _, _| {
+                            for (id, name) in &devices {
+                                let owner = owner.clone();
+                                let id = id.clone();
+                                menu = menu.item(
+                                    PopupMenuItem::new(name.clone())
+                                        .checked(id == selected)
+                                        .on_click(move |_, _, cx| {
+                                            let _ = owner.update(cx, |this, cx| {
+                                                this.library.audio.output = id.clone();
+                                                this.apply_audio(cx);
+                                            });
+                                        }),
+                                );
+                            }
+                            menu
+                        }),
+                    cx,
+                ),
+            )
+            .child(self.equalizer_graph(window, cx));
+        let owner = cx.weak_entity();
+        let crossfade = self.library.audio.crossfade;
+        body = body.child(
+            self.setting_row(
+                t("Crossfade"),
+                Button::new("crossfade")
+                    .accessibility_label(t("Crossfade"))
+                    .label(if crossfade == 0. {
+                        t("Off").to_owned()
+                    } else {
+                        tr!("{:.0} seconds", crossfade)
+                    })
+                    .dropdown_menu(move |mut menu, _, _| {
+                        for seconds in [0u8, 2, 4, 6, 8, 10] {
+                            let owner = owner.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(if seconds == 0 {
+                                    t("Off").to_owned()
+                                } else {
+                                    tr!("{:.0} seconds", seconds as f64)
+                                })
+                                .checked(seconds as f64 == crossfade)
+                                .on_click(move |_, _, cx| {
+                                    let _ = owner.update(cx, |this, cx| {
+                                        this.library.audio.crossfade = seconds as f64;
+                                        this.apply_audio(cx);
+                                    });
+                                }),
+                            );
+                        }
+                        menu
+                    }),
+                cx,
+            ),
+        );
+        let owner = cx.weak_entity();
+        let label = if self.sleep_end {
+            t("End of song").to_owned()
+        } else if let Some(deadline) = self.sleep_until {
+            tr!(
+                "Pausing in {} min",
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .as_secs()
+                    .div_ceil(60)
+            )
+        } else {
+            t("Off").to_owned()
+        };
+        body.child(
+            self.setting_row(
+                t("Sleep timer"),
+                Button::new("sleep-timer")
+                    .accessibility_label(t("Sleep timer"))
+                    .label(label)
+                    .dropdown_menu(move |mut menu, _, _| {
+                        for minutes in [0usize, 15, 30, 60, usize::MAX] {
+                            let owner = owner.clone();
+                            let label = match minutes {
+                                0 => t("Off").to_owned(),
+                                usize::MAX => t("End of song").to_owned(),
+                                _ => tr!("{minutes} min"),
+                            };
+                            menu =
+                                menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                                    let _ = owner.update(cx, |this, cx| {
+                                        this.sleep_end = minutes == usize::MAX;
+                                        this.sleep_until = if minutes > 0 && minutes != usize::MAX {
+                                            Some(
+                                                Instant::now()
+                                                    + Duration::from_secs(minutes as u64 * 60),
+                                            )
+                                        } else {
+                                            None
+                                        };
+                                        this.content_revision += 1;
+                                        cx.notify();
+                                    });
+                                }));
+                        }
+                        menu
+                    }),
+                cx,
+            ),
         )
-        .when_some(self.sleep_until, |body, deadline| {
-            body.child(div().text_sm().child(tr!(
-                    "Pausing in {} min",
-                    deadline
-                        .saturating_duration_since(Instant::now())
-                        .as_secs()
-                        .div_ceil(60)
-                )))
-        })
     }
     pub(super) fn apply_audio(&mut self, cx: &mut Context<Self>) {
         self.library.audio.validate();
@@ -862,27 +935,36 @@ impl Raag {
                     )
                     .child(
                         Button::new("audio-budget")
-                            .ghost()
                             .label(tr!(
                                 "Storage limit: {} GiB",
                                 self.library.audio_budget / 1073741824
                             ))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.library.audio_budget =
-                                    match this.library.audio_budget / 1073741824 {
-                                        2 => 4,
-                                        4 => 8,
-                                        8 => 16,
-                                        _ => 2,
-                                    } * 1073741824;
-                                raag::cache::configure(
-                                    this.library.audio_budget,
-                                    this.library.offline_only,
-                                );
-                                this.save();
-                                this.content_revision += 1;
-                                cx.notify();
-                            })),
+                            .dropdown_menu({
+                                let owner = cx.weak_entity();
+                                move |mut menu, _, _| {
+                                    for gib in [2u64, 4, 8, 16, 32] {
+                                        let owner = owner.clone();
+                                        menu = menu.item(
+                                            PopupMenuItem::new(format!("{gib} GiB")).on_click(
+                                                move |_, _, cx| {
+                                                    let _ = owner.update(cx, |this, cx| {
+                                                        this.library.audio_budget =
+                                                            gib * 1073741824;
+                                                        raag::cache::configure(
+                                                            this.library.audio_budget,
+                                                            this.library.offline_only,
+                                                        );
+                                                        this.save();
+                                                        this.content_revision += 1;
+                                                        cx.notify();
+                                                    });
+                                                },
+                                            ),
+                                        );
+                                    }
+                                    menu
+                                }
+                            }),
                     ),
             )
             .child(
