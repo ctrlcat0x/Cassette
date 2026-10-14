@@ -36,7 +36,7 @@ fn matches() -> &'static Mutex<Matches> {
     static MATCHES: OnceLock<Mutex<Matches>> = OnceLock::new();
     MATCHES.get_or_init(Default::default)
 }
-fn policy() -> &'static crate::request_policy::RequestPolicy {
+pub(crate) fn policy() -> &'static crate::request_policy::RequestPolicy {
     static POLICY: OnceLock<crate::request_policy::RequestPolicy> = OnceLock::new();
     POLICY.get_or_init(Default::default)
 }
@@ -48,7 +48,11 @@ pub(crate) fn resolve(
     id: u64,
     generation: &AtomicU64,
 ) -> Result<Option<AudioSource>> {
-    if !enabled() || track.artist.trim().is_empty() || track.duration == 0 {
+    if !enabled()
+        || track.artist.trim().is_empty()
+        || track.duration == 0
+        || generation.load(Ordering::Acquire) != id
+    {
         return Ok(None);
     }
     let key = format!(
@@ -66,10 +70,23 @@ pub(crate) fn resolve(
     let candidate = if let Some(held) = held {
         held
     } else {
+        // Searching every credited artist can exclude the correct recording/version.
+        // Search the primary artist, then validate all returned recording metadata below.
+        let artist = track.artists.first().map_or_else(
+            || {
+                track
+                    .artist
+                    .split(['&', ',', ';', '/'])
+                    .next()
+                    .unwrap_or(&track.artist)
+                    .trim()
+            },
+            |artist| artist.name.as_str(),
+        );
         let response = get(
             "search.getResults",
             &[
-                ("q", &format!("{} {}", track.title, track.artist)),
+                ("q", &format!("{} {}", track.title, artist)),
                 ("n", "12"),
                 ("p", "1"),
             ],
@@ -140,9 +157,15 @@ fn get(call: &str, params: &[(&str, &str)]) -> Result<Value> {
         .header("Accept", "application/json")
         .header("Cookie", "explicit_content=1")
         .send()
-        .map_err(|_| anyhow::anyhow!("JioSaavn could not be reached"))?;
+        .map_err(|_| {
+            policy().pause(Duration::from_secs(15));
+            anyhow::anyhow!("JioSaavn could not be reached")
+        })?;
     policy().observe(response.status(), response.headers());
     if !response.status().is_success() {
+        if response.status().as_u16() == 403 || response.status().is_server_error() {
+            policy().pause(Duration::from_secs(60));
+        }
         bail!("JioSaavn returned HTTP {}", response.status().as_u16());
     }
     crate::resource::json(response, 2 * 1024 * 1024).context("Invalid JioSaavn response")

@@ -28,7 +28,7 @@ pub enum Request {
     Artist(u64, String),
 }
 pub enum Event {
-    Page(u64, Page, bool),
+    Page(u64, Box<Page>, bool),
     Failure(u64, String),
     Lyrics(String, Result<raag::lyrics::Lyrics, String>),
     Artwork(HashMap<String, PathBuf>, HashMap<PathBuf, u8>),
@@ -109,13 +109,24 @@ impl Backend {
             let Ok(mut catalog) = Catalog::new(None) else {
                 return;
             };
+            let mut cached: HashMap<String, (Instant, Vec<String>)> = HashMap::new();
             while let Ok((revision, query)) = suggestion_jobs.recv() {
                 if raag::cache::offline_only() {
                     continue;
                 }
                 let snapshot = suggestion_auth.snapshot();
                 catalog.set_session(snapshot.session);
-                let results = catalog.suggestions(&query).unwrap_or_default();
+                cached.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(300));
+                let results = if let Some((_, results)) = cached.get(query.trim()) {
+                    results.clone()
+                } else {
+                    let results = catalog.suggestions(&query).unwrap_or_default();
+                    if cached.len() >= 64 {
+                        cached.clear();
+                    }
+                    cached.insert(query.trim().to_owned(), (Instant::now(), results.clone()));
+                    results
+                };
                 if suggestion_auth.current(snapshot.generation) {
                     let _ = suggestion_events.send(Event::Suggestions(revision, results));
                 }
@@ -304,7 +315,7 @@ impl Backend {
                         }
                         if revision == latest.load(Ordering::Acquire) {
                             fetch_page_artwork(&page, responses.clone());
-                            let _ = responses.send(Event::Page(revision, page, append));
+                            let _ = responses.send(Event::Page(revision, Box::new(page), append));
                         }
                     }
                     Err(error)
@@ -500,21 +511,16 @@ fn dispatch_requests(
                 .ok()
                 .and_then(|file| raag::resource::json(file, raag::resource::PAGE_BYTES).ok())
         };
-        let incomplete_artists = cached.as_ref().is_some_and(|page| {
-            page.tracks
-                .iter()
-                .any(|track| track.kind == raag::ItemKind::Song && track.artist.trim().is_empty())
-        });
         let has_cache = cached.is_some();
         if let Some(page) = cached
             && auth.current(snapshot.generation)
         {
             fetch_page_artwork(&page, events.clone());
-            let _ = events.send(Event::Page(revision, page, false));
+            let _ = events.send(Event::Page(revision, Box::new(page), false));
         }
         if has_cache
             && (raag::cache::offline_only()
-                || !incomplete_artists && raag::cache::metadata_fresh(&path, request_ttl(&request)))
+                || raag::cache::metadata_fresh(&path, request_ttl(&request)))
         {
             continue;
         }
@@ -538,7 +544,7 @@ fn request_cache_key(request: &Request) -> String {
         Request::Home(_) => "home".into(),
         Request::Explore(_) => "explore".into(),
         Request::Search(_, query, kind) => format!("search:{query}:{kind:?}"),
-        Request::Browse(_, id, _) => format!("browse:{id}"),
+        Request::Browse(_, id, _) => format!("browse:v3:{id}"),
         Request::Discover(_, id, params, _) => format!("browse:{id}:{params}"),
         Request::Radio(_, id) => format!("radio:{id}"),
         Request::Artist(_, name) => format!("artist:{name}"),

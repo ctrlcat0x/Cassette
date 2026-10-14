@@ -4,7 +4,7 @@ use crate::{
 };
 use gpui_kit::base::Button as ContentButton;
 use gpui_kit::component::{
-    ActiveTheme, Disableable, Selectable, Sizable,
+    ActiveTheme, Disableable, Selectable, Sizable, WindowExt,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu, PopupMenu, PopupMenuItem},
@@ -1045,7 +1045,8 @@ impl Raag {
                     self.suggestions = suggestions;
                     changed = true;
                 }
-                Event::Page(id, mut page, append) if id == self.revision => {
+                Event::Page(id, page, append) if id == self.revision => {
+                    let mut page = *page;
                     if self.catalog.is_empty() && !append {
                         self.collection_reveal_at = Instant::now();
                     }
@@ -1413,20 +1414,6 @@ impl Raag {
                     if let Some(track) = self.selected.clone() {
                         if !self.private_session {
                             self.library.stats.started(&track);
-                        }
-                        if track.kind == ItemKind::Song {
-                            let persistent = self
-                                .library
-                                .stats
-                                .tracks
-                                .get(&track.id)
-                                .is_some_and(|stats| stats.qualified_plays >= 2);
-                            let _ = self.backend.caches.send((
-                                track.clone(),
-                                persistent,
-                                self.library.ytdlp_path.clone(),
-                                self.playback_cookies(),
-                            ));
                         }
                         if !self.private_session {
                             self.library.played(track);
@@ -2069,7 +2056,7 @@ impl Raag {
         if !self.playing
             || self.buffering
             || self.duration <= 0.
-            || (self.position < 5. && self.duration - self.position > 20.)
+            || self.duration - self.position > (self.library.audio.crossfade + 10.).max(20.)
             || self.seek_pending.is_some()
         {
             return;
@@ -4449,7 +4436,7 @@ impl Raag {
         &self,
         label: impl Into<SharedString>,
         control: impl IntoElement,
-        cx: &App,
+        _cx: &App,
     ) -> Div {
         div()
             .flex()
@@ -4458,8 +4445,6 @@ impl Raag {
             .justify_between()
             .gap_4()
             .py_3()
-            .border_b_1()
-            .border_color(cx.theme().border.opacity(0.5))
             .child(div().text_sm().child(label.into()))
             .child(div().flex_shrink_0().child(control))
     }
@@ -4469,9 +4454,9 @@ impl Raag {
             .flex_col()
             .gap_4()
             .w_full()
-            .border_t_1()
-            .border_color(cx.theme().border)
-            .pt_6()
+            .p_5()
+            .rounded_lg()
+            .bg(cx.theme().muted.opacity(0.2))
             .child(
                 div()
                     .flex()
@@ -4645,13 +4630,7 @@ impl Raag {
                         .child(Button::new("choose-cookies").ghost().label(t("Import cookies…")).disabled(self.auth.busy())
                             .on_click(cx.listener(|this, _, _, cx| this.choose_cookies(cx))))
                         .child(Button::new("cookie-help").ghost().label(t("Cookie import help")).on_click(|_, _, cx| cx.open_url("https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies"))))));
-        let mut tabs = div()
-            .flex()
-            .flex_wrap()
-            .gap_1()
-            .pb_4()
-            .border_b_1()
-            .border_color(cx.theme().border);
+        let mut tabs = div().flex().flex_wrap().gap_1().pb_2();
         for (index, label) in [
             "Appearance",
             "Playback",
@@ -4727,8 +4706,6 @@ impl Raag {
             .child(panel)
             .child(
                 div()
-                    .border_t_1()
-                    .border_color(cx.theme().border)
                     .pt_5()
                     .flex()
                     .flex_col()

@@ -371,10 +371,17 @@ impl Player {
                         failed = matches!(event.event, PlayerEvent::Error(_));
                         ended = matches!(event.event, PlayerEvent::Ended);
                         if failed {
+                            let limited = matches!(&event.event, PlayerEvent::Error(message) if request_limited(&message.to_lowercase()));
+                            if limited {
+                                source_policy(&ready.source).pause(Duration::from_secs(60));
+                            }
                             forget_source(&ready.track_id);
                             if !ready.loaded_forwarded
                                 && !source_retried
                                 && ready.source.url.starts_with("https://")
+                                && !limited
+                                && (ready.source.quality.source == "JioSaavn"
+                                    || matches!(&event.event, PlayerEvent::Error(message) if message.contains("403") || message.contains("410")))
                             {
                                 retry = true;
                                 break;
@@ -799,7 +806,6 @@ pub fn resolve_with_quality(
             let _ = sender.send((true, result.map(Some)));
         }
     });
-    let started = Instant::now();
     let mut youtube_error = None;
     let result = loop {
         if generation.load(Ordering::Acquire) != id {
@@ -810,10 +816,8 @@ pub fn resolve_with_quality(
                 "Audio resolution took too long. Retry playback."
             ));
         }
-        // Give a nearby/cached substitute a brief head start, not its full timeout.
-        if (!substitute_pending || started.elapsed() >= Duration::from_millis(350))
-            && let Some(job) = youtube.take()
-        {
+        // Only extract YouTube audio after JioSaavn reports a miss or failure.
+        if !substitute_pending && let Some(job) = youtube.take() {
             thread::spawn(job);
         }
         match candidates.recv_timeout(Duration::from_millis(20)) {
@@ -915,15 +919,7 @@ fn select_source(
     mut extract: impl FnMut(&str) -> Result<(AudioSource, bool)>,
 ) -> Result<AudioSource> {
     match extract(cookies) {
-        Ok((source, audio_only)) => {
-            if !audio_only
-                && !cookies.trim().is_empty()
-                && let Ok((public, true)) = extract("")
-            {
-                return Ok(public);
-            }
-            Ok(source)
-        }
+        Ok((source, _)) => Ok(source),
         Err(error) if !cookies.trim().is_empty() && error.is::<RejectedFormats>() => {
             extract("").map(|(source, _)| source)
         }
@@ -945,7 +941,16 @@ fn youtube_policy() -> &'static crate::request_policy::RequestPolicy {
     crate::request_policy::youtube()
 }
 
+pub(crate) fn source_policy(source: &AudioSource) -> &'static crate::request_policy::RequestPolicy {
+    if source.quality.source == "JioSaavn" {
+        crate::jiosaavn::policy()
+    } else {
+        youtube_policy()
+    }
+}
+
 fn validate_stream(source: &AudioSource, deadline: Instant) -> Result<()> {
+    source_policy(source).before()?;
     static CLIENT: std::sync::OnceLock<reqwest::blocking::Client> = std::sync::OnceLock::new();
     let client = CLIENT.get_or_init(|| {
         reqwest::blocking::Client::builder()
@@ -979,9 +984,7 @@ fn validate_stream(source: &AudioSource, deadline: Instant) -> Result<()> {
                 "Could not reach the audio server. Check your connection."
             })
         })?;
-    if source.quality.source == "YouTube Music" {
-        youtube_policy().observe(response.status(), response.headers());
-    }
+    source_policy(source).observe(response.status(), response.headers());
     match response.status().as_u16() {
         200..=299 => {
             if response
@@ -1038,9 +1041,13 @@ fn extract_source(
         "--socket-timeout",
         "10",
         "--retries",
-        "1",
+        "0",
         "--extractor-retries",
-        "1",
+        "0",
+        "--sleep-requests",
+        "0.5",
+        "--extractor-args",
+        "youtube:player_skip=initial_data",
         "-f",
         quality.format(),
         "--format-sort",

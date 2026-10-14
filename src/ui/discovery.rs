@@ -716,6 +716,17 @@ impl Raag {
         let seed = stored.as_ref().or(self.collection_seed.as_ref());
         let artist = matches!(&self.screen, Screen::Collection(id, _, _) if id.starts_with("UC") || id.starts_with("artist:"));
         let mut hero = collection_art(seed, &self.page, self.screen.title(), artist);
+        if matches!(&self.screen, Screen::Collection(id, _, _) if id.starts_with("MPRE")) {
+            hero.kind = ItemKind::Album;
+            hero.artists.clone_from(&self.page.artists);
+            hero.artist = self
+                .page
+                .artists
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>()
+                .join(" & ");
+        }
         if hero.artwork.is_none() {
             hero.artwork = self.catalog.iter().find_map(|track| track.artwork.clone());
         }
@@ -1116,7 +1127,7 @@ impl Raag {
                             .h(px((if self.page.description.is_empty() {
                                 56.
                             } else {
-                                124.
+                                152.
                             }) * (1. - phase)))
                             .overflow_hidden()
                             .opacity(1. - phase)
@@ -1136,11 +1147,23 @@ impl Raag {
                             )
                             .when(!self.page.description.is_empty(), |info| {
                                 info.child(
-                                    div()
-                                        .text_sm()
-                                        .line_height(relative(1.5))
-                                        .line_clamp(3)
-                                        .child(self.page.description.clone()),
+                                    div().flex().flex_col().items_start().gap_1()
+                                        .child(div().w_full().h(ui_px(42.)).flex_shrink_0().overflow_hidden()
+                                            .text_sm().line_height(relative(1.5)).line_clamp(2).text_ellipsis()
+                                            .child(self.page.description.split_whitespace().collect::<Vec<_>>().join(" ")))
+                                        .child(Button::new("collection-description").ghost().small()
+                                            .label(t("Show more…"))
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                let title = this.page.title.clone();
+                                                let description = this.page.description.clone();
+                                                window.open_dialog(cx, move |dialog, window, _| {
+                                                    dialog.title(title.clone()).width(ui_px(560.))
+                                                        .child(div().id("collection-description-scroll")
+                                                            .max_h(window.bounds().size.height * 0.55)
+                                                            .overflow_y_scroll().text_sm().line_height(relative(1.6))
+                                                            .child(description.clone()))
+                                                });
+                                            }))),
                                 )
                             }),
                     ),
@@ -1355,6 +1378,15 @@ fn collection_art(
         if let Some(url) = &hero.artwork {
             hero.id = format!("page-hero:{url}");
         }
+    }
+    if hero.kind == ItemKind::Album && !page.artists.is_empty() {
+        hero.artists.clone_from(&page.artists);
+        hero.artist = page
+            .artists
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>()
+            .join(" & ");
     }
     hero
 }

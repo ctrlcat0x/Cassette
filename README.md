@@ -6,7 +6,7 @@
 <p align="center"><strong>Find your frequency.</strong><br>A native desktop music player for YouTube Music and your local collection.</p>
 
 <p align="center">
-  <a href="https://github.com/ctrlcat0x/Cassette/releases/tag/v0.5.0-beta"><strong>Download v0.5 beta</strong></a>
+  <a href="https://github.com/ctrlcat0x/Cassette/releases/tag/v0.6.0-beta"><strong>Download v0.6 beta</strong></a>
   &nbsp; · &nbsp;
   <a href="https://github.com/ctrlcat0x/Cassette/releases">All releases</a>
   &nbsp; · &nbsp;
@@ -19,13 +19,13 @@ Your familiar favourites and your next discovery, in one place. Browse YouTube M
 
 ## Get the beta
 
-**[Cassette v0.5 beta is available now.](https://github.com/ctrlcat0x/Cassette/releases/tag/v0.5.0-beta)** Choose the download for your machine:
+**[Cassette v0.6 beta is available now.](https://github.com/ctrlcat0x/Cassette/releases/tag/v0.6.0-beta)** Choose the download for your machine:
 
 | Platform | Download | Getting started |
 | --- | --- | --- |
-| Windows x64 | [Portable EXE](https://github.com/ctrlcat0x/Cassette/releases/download/v0.5.0-beta/cassette-windows-x64.exe) | Download and run `cassette-windows-x64.exe`. |
-| macOS Apple Silicon | [DMG](https://github.com/ctrlcat0x/Cassette/releases/download/v0.5.0-beta/cassette-macos-arm64.dmg) | Open the disk image and drag Cassette into Applications. |
-| Linux x64 | [DEB](https://github.com/ctrlcat0x/Cassette/releases/download/v0.5.0-beta/cassette-linux-x64.deb) | Built on Ubuntu 24.04. Install with `sudo apt install ./cassette-linux-x64.deb`. |
+| Windows x64 | [Portable EXE](https://github.com/ctrlcat0x/Cassette/releases/download/v0.6.0-beta/cassette-windows-x64.exe) | Download and run `cassette-windows-x64.exe`. |
+| macOS Apple Silicon | [DMG](https://github.com/ctrlcat0x/Cassette/releases/download/v0.6.0-beta/cassette-macos-arm64.dmg) | Open the disk image and drag Cassette into Applications. |
+| Linux x64 | [DEB](https://github.com/ctrlcat0x/Cassette/releases/download/v0.6.0-beta/cassette-linux-x64.deb) | Built on Ubuntu 24.04. Install with `sudo apt install ./cassette-linux-x64.deb`. |
 
 This is a beta: playback, provider availability, and account integrations may need further testing on your device. The macOS build is ad-hoc signed and is not notarized. Intel Mac and Linux ARM builds are not included in this release.
 
@@ -33,7 +33,7 @@ GitHub does not mark prereleases as **Latest**, so the repository sidebar may sh
 
 ### Playback setup
 
-The published v0.5 beta downloads require separate playback tools. New builds from this branch embed these tools directly into each EXE, DMG and DEB:
+The published v0.6 beta downloads require separate playback tools. New builds from this branch embed these tools directly into each EXE, DMG and DEB:
 
 - Native CPAL output and Symphonia decoding handle playback; libopus is statically linked for Opus support.
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp#installation) resolves YouTube audio.
@@ -93,8 +93,6 @@ cargo clippy --all-targets --locked -- -D warnings
 [GitHub Actions](https://github.com/ctrlcat0x/Cassette/actions/workflows/build.yml) builds Windows, macOS, and Linux packages and checks executable startup. Version tags matching `Cargo.toml` publish the three native files to GitHub Releases; tags with a prerelease suffix stay marked as prereleases.
 
 Found something that needs attention? [Open an issue](https://github.com/ctrlcat0x/Cassette/issues) with your OS, app version, and steps to reproduce it. Please test GUI behaviour, playback, and sign-in on your target device; a successful build alone does not cover those flows.
-
-The README artwork uses captured app screens. To regenerate the promotional composition, install Pillow and run `python assets/readme/render.py`.
 
 ## License and credits
 

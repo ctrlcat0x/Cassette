@@ -377,7 +377,7 @@ pub fn store_audio_controlled(
     );
     write_json(&directory.join("index.json"), &index)
 }
-const AUDIO_CHUNK_BYTES: u64 = 256 * 1024;
+const AUDIO_CHUNK_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug)]
 struct AudioRejected(u16);
@@ -404,9 +404,7 @@ fn download_audio_controlled(
     let mut offset = 0;
     let mut total = None;
     let mut failures = 0;
-    static POLICY: std::sync::OnceLock<crate::request_policy::RequestPolicy> =
-        std::sync::OnceLock::new();
-    let policy = POLICY.get_or_init(Default::default);
+    let policy = playback::source_policy(source);
     loop {
         // Yield between bounded chunks, never while holding the playback engine.
         wait_for_playback(generation, cancel, deadline)?;

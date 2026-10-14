@@ -24,6 +24,7 @@ pub struct Page {
     pub artwork: Option<String>,
     pub subtitle: String,
     pub description: String,
+    pub artists: Vec<crate::ArtistRef>,
     pub privacy: Option<String>,
     pub sections: Vec<Section>,
     pub destinations: Vec<Destination>,
@@ -307,6 +308,7 @@ impl Catalog {
         if !still_current() || crate::cache::offline_only() {
             bail!("Listening history sync cancelled.");
         }
+        catalog_policy().before()?;
         let mut request = self.http.get(url).header("Origin", crate::auth::ORIGIN);
         if let Some(session) = &self.session {
             request = request.header("Cookie", session.material().cookies.header().as_str());
@@ -314,6 +316,7 @@ impl Catalog {
         let response = request
             .send()
             .map_err(|_| anyhow::anyhow!("Could not sync listening history."))?;
+        catalog_policy().observe(response.status(), response.headers());
         if response.status().as_u16() != 204 {
             bail!("YouTube Music did not confirm listening history sync.");
         }
@@ -344,8 +347,21 @@ impl Catalog {
                 .iter_mut()
                 .chain(page.sections.iter_mut().flat_map(|s| &mut s.tracks))
             {
-                if track.kind == ItemKind::Song && track.album.is_empty() {
-                    track.album = page.title.clone();
+                if track.kind == ItemKind::Song
+                    && (track.album.is_empty() || track.album == page.title)
+                {
+                    if track.artist.is_empty() {
+                        track.artists.clone_from(&page.artists);
+                        track.artist = page
+                            .artists
+                            .iter()
+                            .map(|a| a.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" & ");
+                    }
+                    if track.album.is_empty() {
+                        track.album = page.title.clone();
+                    }
                 }
             }
         }
@@ -751,6 +767,10 @@ pub(crate) fn parse_renderer(value: &Value) -> Option<Track> {
                 *part,
                 "Song" | "Video" | "Album" | "Single" | "EP" | "Playlist" | "Artist"
             ) && !part.is_empty()
+                && duration(part) == 0
+                && !(part.len() == 4 && part.parse::<u16>().is_ok())
+                && !part.ends_with(" views")
+                && !part.ends_with(" plays")
         })
         .unwrap_or("")
         .to_owned();
@@ -765,23 +785,6 @@ pub(crate) fn parse_renderer(value: &Value) -> Option<Track> {
         })
     }
     let mut artists = Vec::new();
-    fn artist_runs(value: &Value, artists: &mut Vec<crate::ArtistRef>) {
-        if let Some(runs) = value.get("runs").and_then(Value::as_array) {
-            for run in runs {
-                if let Some(id) = run["navigationEndpoint"]["browseEndpoint"]["browseId"]
-                    .as_str()
-                    .filter(|id| id.starts_with("UC"))
-                    && let Some(name) = run["text"].as_str()
-                    && !artists.iter().any(|a| a.id == id)
-                {
-                    artists.push(crate::ArtistRef {
-                        id: id.into(),
-                        name: name.into(),
-                    });
-                }
-            }
-        }
-    }
     artist_runs(&value["subtitle"], &mut artists);
     artist_runs(&value["longBylineText"], &mut artists);
     artist_runs(&value["shortBylineText"], &mut artists);
@@ -810,15 +813,11 @@ pub(crate) fn parse_renderer(value: &Value) -> Option<Track> {
     };
     let (library_add, library_remove) = library_tokens(value);
     Some(Track {
-        explicit: Some(
-            value["badges"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .any(|badge| {
-                    find(badge, "iconType").and_then(Value::as_str) == Some("MUSIC_EXPLICIT_BADGE")
-                }),
-        ),
+        explicit: value.get("badges").and_then(Value::as_array).map(|badges| {
+            badges.iter().any(|badge| {
+                find(badge, "iconType").and_then(Value::as_str) == Some("MUSIC_EXPLICIT_BADGE")
+            })
+        }),
         library_add,
         library_remove,
         like_status: find(value, "likeStatus")
@@ -842,6 +841,24 @@ pub(crate) fn parse_renderer(value: &Value) -> Option<Track> {
         artwork,
         kind,
     })
+}
+
+fn artist_runs(value: &Value, artists: &mut Vec<crate::ArtistRef>) {
+    if let Some(runs) = value.get("runs").and_then(Value::as_array) {
+        for run in runs {
+            if let Some(id) = run["navigationEndpoint"]["browseEndpoint"]["browseId"]
+                .as_str()
+                .filter(|id| id.starts_with("UC"))
+                && let Some(name) = run["text"].as_str().filter(|name| !name.trim().is_empty())
+                && !artists.iter().any(|a| a.id == id)
+            {
+                artists.push(crate::ArtistRef {
+                    id: id.into(),
+                    name: name.into(),
+                });
+            }
+        }
+    }
 }
 
 fn history_url(value: &Value) -> Result<reqwest::Url> {
@@ -979,6 +996,10 @@ pub fn parse_page(value: &Value, title: &str) -> Page {
                 page.title = heading;
             }
             page.subtitle = text(&header["subtitle"]);
+            artist_runs(&header["straplineTextOne"], &mut page.artists);
+            if page.artists.is_empty() {
+                artist_runs(&header["subtitle"], &mut page.artists);
+            }
             page.description = text(&header["description"]);
             if page.description.is_empty() {
                 page.description = find(header, "musicDescriptionShelfRenderer")

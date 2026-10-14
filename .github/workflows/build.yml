@@ -233,6 +233,13 @@ jobs:
           cat > release-notes.md <<'EOF'
           Cassette is a native desktop music player built with Rust and GPUI.
 
+          ### Changes in v0.6 beta
+          - Resolve JioSaavn first and use YouTube only when needed; disable extractor retries and unnecessary metadata requests.
+          - Share provider cooldowns across playback and downloads, use larger bounded audio ranges, and defer prefetch and automatic caching.
+          - Restore album artists from header metadata and show full collection descriptions in a keyboard-accessible modal.
+          - Simplify settings with spacing and subtle section backgrounds instead of repeated separator lines.
+          - Remove obsolete generated workspace files.
+
           ### Features
           - Browse and search YouTube Music, with optional account library sync.
           - Play local music, manage playlists and queues, and save favourites.

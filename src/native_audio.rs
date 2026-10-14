@@ -745,6 +745,8 @@ fn decode(
 }
 
 /// Bounded range cache keeps seeks cheap without retaining complete remote songs.
+const HTTP_CHUNK_BYTES: u64 = 1024 * 1024;
+
 struct HttpSource {
     client: reqwest::blocking::Client,
     url: String,
@@ -754,6 +756,7 @@ struct HttpSource {
     blocks: VecDeque<(u64, Vec<u8>)>,
     fallback: Option<std::fs::File>,
     cancelled: Arc<AtomicBool>,
+    policy: &'static crate::request_policy::RequestPolicy,
 }
 impl HttpSource {
     fn new(source: &AudioSource, cancelled: Arc<AtomicBool>) -> Result<Self> {
@@ -784,9 +787,17 @@ impl HttpSource {
             blocks: VecDeque::new(),
             fallback: None,
             cancelled,
+            policy: crate::playback::source_policy(source),
         })
     }
     fn fetch(&mut self, start: u64) -> io::Result<()> {
+        if self.cancelled.load(Ordering::Acquire) {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "Audio request cancelled",
+            ));
+        }
+        self.policy.before().map_err(io::Error::other)?;
         if self.cancelled.load(Ordering::Acquire) {
             return Err(io::Error::new(
                 io::ErrorKind::Interrupted,
@@ -799,10 +810,11 @@ impl HttpSource {
             .headers(self.headers.clone())
             .header(
                 reqwest::header::RANGE,
-                format!("bytes={start}-{}", start + 262143),
+                format!("bytes={start}-{}", start + HTTP_CHUNK_BYTES - 1),
             )
             .send()
             .map_err(|error| io::Error::other(error.without_url()))?;
+        self.policy.observe(response.status(), response.headers());
         if response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
             if let Some(length) = response
                 .headers()
@@ -846,24 +858,27 @@ impl HttpSource {
             .split_once('-')
             .and_then(|(first, last)| Some((first.parse::<u64>().ok()?, last.parse::<u64>().ok()?)))
             .ok_or_else(|| io::Error::other("Invalid audio range response"))?;
-        if first != start || last < first || last - first >= 262144 {
+        if first != start || last < first || last - first >= HTTP_CHUNK_BYTES {
             return Err(io::Error::other("Audio server returned the wrong range"));
         }
         self.length = total.parse().ok().or(self.length);
         let mut bytes = Vec::new();
-        response.by_ref().take(262145).read_to_end(&mut bytes)?;
-        if bytes.len() > 262144 {
+        response
+            .by_ref()
+            .take(HTTP_CHUNK_BYTES + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > HTTP_CHUNK_BYTES {
             return Err(io::Error::other("Audio range exceeds requested size"));
         }
         if bytes.len() as u64 != last - first + 1
-            || (bytes.len() < 262144 && self.length != last.checked_add(1))
+            || ((bytes.len() as u64) < HTTP_CHUNK_BYTES && self.length != last.checked_add(1))
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Incomplete audio range response",
             ));
         }
-        if self.blocks.len() >= 32 {
+        if self.blocks.len() >= 8 {
             self.blocks.pop_front();
         }
         self.blocks.push_back((start, bytes));
@@ -880,7 +895,7 @@ impl Read for HttpSource {
             self.position += count as u64;
             return Ok(count);
         }
-        let start = self.position / 262144 * 262144;
+        let start = self.position / HTTP_CHUNK_BYTES * HTTP_CHUNK_BYTES;
         if !self.blocks.iter().any(|(at, _)| *at == start) {
             self.fetch(start)?;
         }
