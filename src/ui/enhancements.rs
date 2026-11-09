@@ -111,6 +111,22 @@ impl Raag {
         )
         .child(self.setting_row(t("Language"), language, cx))
         .child(self.setting_row(t("Interface scale"), scale, cx))
+        .child(
+            self.setting_row(
+                t("Reduce motion"),
+                Switch::new("reduce-motion")
+                    .accessibility_label(t("Reduce motion"))
+                    .checked(self.library.reduce_motion)
+                    .on_change(cx.listener(|this, enabled, _, cx| {
+                        this.library.reduce_motion = *enabled;
+                        crate::motion::set_reduce_motion(*enabled, cx);
+                        this.content_revision += 1;
+                        this.save();
+                        cx.notify();
+                    })),
+                cx,
+            ),
+        )
     }
 
     pub(super) fn organization_controls(&self, cx: &mut Context<Self>) -> Div {
@@ -684,10 +700,7 @@ impl Raag {
                 .flex_wrap()
                 .justify_center()
                 .children(line.words.iter().enumerate().map(|(index, word)| {
-                    let end = word
-                        .end
-                        .or_else(|| line.words.get(index + 1).map(|w| w.start))
-                        .unwrap_or(f64::INFINITY);
+                    let end = Self::lyric_word_end(line, index);
                     div()
                         .text_color(color.opacity(if time >= word.start && time < end {
                             1.

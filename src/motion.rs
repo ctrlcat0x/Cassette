@@ -2,6 +2,25 @@
 use gpui_kit::*;
 use std::{cell::RefCell, rc::Rc, time::Instant};
 
+struct AppReduceMotion(bool);
+impl Global for AppReduceMotion {}
+
+pub(crate) fn set_reduce_motion(enabled: bool, cx: &mut App) {
+    cx.set_global(AppReduceMotion(enabled));
+    cx.refresh_windows();
+}
+
+pub(crate) fn reduce_motion(cx: &App) -> bool {
+    cx.reduce_motion()
+        || cx
+            .try_global::<AppReduceMotion>()
+            .is_some_and(|motion| motion.0)
+}
+
+pub(crate) fn ease_out() -> impl Fn(f32) -> f32 {
+    gpui_kit::base::animation::cubic_bezier(0.23, 1., 0.32, 1.)
+}
+
 #[derive(Default)]
 struct Travel {
     target: f32,
@@ -122,7 +141,7 @@ impl SmoothScroll {
     pub fn scroll_to(&self, target: f32, view: EntityId, window: &mut Window, cx: &mut App) {
         let max = f32::from(self.handle.max_offset().y).max(0.);
         let target = target.clamp(-max, 0.);
-        if cx.reduce_motion() {
+        if reduce_motion(cx) {
             self.cancel();
             self.handle.set_offset(point(px(0.), px(target)));
             cx.notify(view);
@@ -161,7 +180,7 @@ impl SmoothScroll {
         if let Some(callback) = &self.on_scroll {
             callback(window, cx);
         }
-        if cx.reduce_motion() || !matches!(event.delta, ScrollDelta::Lines(_)) {
+        if reduce_motion(cx) || !matches!(event.delta, ScrollDelta::Lines(_)) {
             self.cancel();
             return;
         }
@@ -172,7 +191,7 @@ impl SmoothScroll {
         }
         let current = f32::from(self.handle.offset().y);
         let mut travel = self.travel.borrow_mut();
-        travel.target = wheel_target(
+        let target = wheel_target(
             current,
             travel.target,
             travel.direction,
@@ -180,6 +199,10 @@ impl SmoothScroll {
             max,
             travel.running,
         );
+        if !travel.running && target == current {
+            return;
+        }
+        travel.target = target;
         travel.direction = delta.signum();
         if !travel.running {
             travel.running = true;
@@ -209,7 +232,7 @@ impl SmoothScroll {
             let current = f32::from(controller.handle.offset().y);
             let max = f32::from(controller.handle.max_offset().y).max(0.);
             travel.target = travel.target.clamp(-max, 0.);
-            let next = if cx.reduce_motion() {
+            let next = if reduce_motion(cx) {
                 travel.velocity = 0.;
                 travel.target
             } else {

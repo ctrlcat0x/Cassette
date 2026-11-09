@@ -1,6 +1,6 @@
 use super::*;
 impl Raag {
-    pub(super) fn home(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn home(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         // Shelf covers retain size; toggles reveal or clip neighbouring items.
         let columns = ((self.content_width(window) - 64. + 20.) / 204.)
             .floor()
@@ -87,7 +87,7 @@ impl Raag {
         title: &str,
         tracks: &[Track],
         columns: usize,
-        window: &Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let filtered;
@@ -139,37 +139,51 @@ impl Raag {
                     .tooltip(label)
                     .accessibility_label(tr!("{label} in {title}"))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        let next = start
+                        let target = this.shelf_positions.entry(key.clone()).or_default();
+                        *target = (*target)
+                            .min(end)
                             .saturating_add_signed(
                                 direction * columns.saturating_sub(1).max(1) as isize,
                             )
                             .min(end);
-                        this.shelf_positions.insert(key.clone(), next);
                         this.content_revision += 1;
                         cx.notify();
                     })),
             );
         }
+        use gpui_kit::base::motion::{Spring, spring};
         let extent = 184.;
+        let gap = 20.;
+        let stride = extent + gap;
+        let travel = window.is_window_active() && !crate::motion::reduce_motion(cx);
+        let offset = spring(
+            SharedString::from(format!("carousel-{key}")),
+            -(start as f32) * stride,
+            Spring::new(Duration::from_millis(250))
+                .with_epsilon(0.5)
+                .with_travel(travel),
+            window,
+            cx,
+        )
+        .clamp(-(end as f32) * stride, 0.);
+        let visible = (-offset / stride).floor() as usize;
+        // Keep overscan around what is on screen, even during a fast reversal.
+        let first = visible.saturating_sub(1);
         let mut cards = div()
-            .id(SharedString::from(format!("shelf-track-{key}")))
             .flex()
-            .gap_5()
+            .gap(px(gap))
             .items_start()
             .flex_shrink_0()
-            .w(px((tracks.len() as f32 * (extent + 20.) - 20.).max(0.)));
-        let first = start.saturating_sub(columns);
+            .w(px(tracks.len() as f32 * stride - gap))
+            .relative()
+            .left(px(offset));
         if first > 0 {
-            cards = cards.child(
-                div()
-                    .w(px(first as f32 * (extent + 20.) - 20.))
-                    .flex_shrink_0(),
-            );
+            cards = cards.child(div().w(px(first as f32 * stride - gap)).flex_shrink_0());
         }
         for track in tracks
             .iter()
             .skip(first)
-            .take((start + 2 * columns).saturating_sub(first))
+            .take(visible + columns + 2 - first)
         {
             cards = cards.child(
                 div()
@@ -179,20 +193,6 @@ impl Raag {
                     .child(self.home_card(track, extent, window, cx)),
             );
         }
-        let offset = -(start as f32) * (extent + 20.);
-        let cards = if cx.reduce_motion() {
-            cards.relative().left(px(offset)).into_any_element()
-        } else {
-            cards
-                .with_spring(
-                    SharedString::from(format!("carousel-{key}")),
-                    SpringAnimation::new(SpringConfig::new(400., 40., 1.))
-                        .to(offset)
-                        .with_epsilon(0.1),
-                    |row, offset| row.relative().left(px(offset)),
-                )
-                .into_any_element()
-        };
         let carousel = div().w_full().min_w_0().overflow_hidden().child(cards);
         div()
             .flex()
@@ -237,14 +237,13 @@ impl Raag {
                     .aspect_ratio(1.)
                     .rounded_lg()
                     .overflow_hidden()
+                    .hover(|art| art.opacity(0.92))
+                    .active(|art| art.opacity(0.82))
                     .accessibility_label(tr!("Open {}", track.title))
                     .child(self.cover(track, rems(extent / f32::from(window.rem_size())), cx))
-                    .on_click(cx.listener(move |this, _, _, cx| this.open_track(owned.clone(), cx)))
-                    .map(|button| HoverArtwork {
-                        id: SharedString::from(format!("home-hover-{}", track.id)),
-                        view: self.content.entity_id(),
-                        child: button.into_any_element(),
-                    }),
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.open_track(owned.clone(), cx)),
+                    ),
             )
             .child(
                 div()

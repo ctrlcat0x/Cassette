@@ -1,5 +1,14 @@
 use super::*;
+use gpui_kit::base::motion::{Interpolate, Transition, transition};
 use gpui_kit::component::menu::DropdownMenu;
+
+#[derive(Clone, Copy, PartialEq)]
+struct AmbientTint(u32);
+impl Interpolate for AmbientTint {
+    fn interpolate(&self, target: &Self, phase: f32) -> Self {
+        Self(raag::artwork::blend(self.0, target.0, phase))
+    }
+}
 
 impl Raag {
     pub(super) fn immersive_button(button: Button, cx: &App) -> Button {
@@ -12,54 +21,55 @@ impl Raag {
                 .active(white.opacity(0.20)),
         )
     }
-    pub(super) fn immersive_palette(&self) -> (u32, u32) {
-        let color = |track: &Track| {
-            self.artwork_colors
-                .get(track.artwork_key())
-                .or_else(|| self.artwork_colors.get(&track.id))
-                .map(|colors| colors.ambient)
-        };
-        let ambient = self.selected.as_ref().and_then(color).unwrap_or(0x23232b);
-        let previous = self
-            .previous_track
+    pub(super) fn immersive_tint(&self) -> u32 {
+        self.selected
             .as_ref()
-            .and_then(color)
-            .unwrap_or(ambient);
-        (previous, ambient)
+            .and_then(|track| {
+                self.artwork_colors
+                    .get(track.artwork_key())
+                    .or_else(|| self.artwork_colors.get(&track.id))
+            })
+            .map_or(0x23232b, |colors| colors.ambient)
     }
-    pub(super) fn immersive_background(&self, cx: &mut Context<Self>) -> AnyElement {
-        let (previous, ambient) = self.immersive_palette();
+    pub(super) fn immersive_background(&self, window: &mut Window, cx: &mut App) -> AnyElement {
         let soft = self
             .selected
             .as_ref()
             .and_then(|track| self.artwork_path(track))
             .map(|path| path.with_extension("soft.jpg"));
+        let tint = AmbientTint(self.immersive_tint());
+        let opacity = if self.library.immersive_artwork && soft.is_some() {
+            0.65f32
+        } else {
+            0.
+        };
+        let animate = !crate::motion::reduce_motion(cx) && window.is_window_active();
+        let policy = |ms| {
+            Transition::new(Duration::from_millis(if animate { ms } else { 0 }))
+                .ease(crate::motion::ease_out())
+        };
+        let tint = transition("immersive-tint", tint, policy(200), window, cx);
+        let opacity = transition(
+            "immersive-artwork-opacity",
+            opacity,
+            policy(150),
+            window,
+            cx,
+        );
         div()
             .relative()
             .size_full()
-            .bg(rgb(ambient))
-            .when_some(
-                soft.filter(|_| self.library.immersive_artwork),
-                |background, path| {
-                    background.child(
-                        div()
-                            .absolute()
-                            .inset_0()
-                            .opacity(0.65)
-                            .child(img(path).size_full().object_fit(ObjectFit::Cover)),
-                    )
-                },
-            )
+            .bg(rgb(tint.0))
+            .when_some(soft.filter(|_| opacity > 0.), |background, path| {
+                background.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .opacity(opacity)
+                        .child(img(path).size_full().object_fit(ObjectFit::Cover)),
+                )
+            })
             .child(div().absolute().inset_0().bg(rgb(0x08090d).opacity(0.40)))
-            .with_animation(
-                ("immersive-colour", self.player.generation() as usize),
-                Animation::new(Duration::from_millis(if cx.reduce_motion() {
-                    1
-                } else {
-                    450
-                })),
-                move |div, phase| div.bg(rgb(raag::artwork::blend(previous, ambient, phase))),
-            )
             .into_any_element()
     }
     fn immersive_extent(&self, window: &Window) -> f32 {
@@ -93,6 +103,7 @@ impl Raag {
         if self.selected.is_none() {
             return;
         }
+        self.cancel_seek_preview(cx);
         self.immersive = true;
         self.immersive_lyrics = true;
         self.lyrics_follow = true;
@@ -107,6 +118,7 @@ impl Raag {
         cx.notify();
     }
     pub(super) fn exit_immersive(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_seek_preview(cx);
         self.immersive = false;
         self.immersive_scroll.reset();
         if window.is_fullscreen() {
@@ -125,7 +137,7 @@ impl Raag {
             return div().into_any_element();
         }
         let white: Hsla = rgb(0xffffff).into();
-        let (_, ambient) = self.immersive_palette();
+        let ambient = self.immersive_tint();
         let width = f32::from(window.bounds().size.width);
         let extent = self.immersive_extent(window);
         let left = div()

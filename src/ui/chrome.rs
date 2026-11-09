@@ -49,10 +49,10 @@ enum ChromeState {
         bool,
     ),
     Art(u64, u64),
-    Background(u64, u64, bool, (u32, u32)),
+    Background(u64, u64, bool, u32),
     Title(u64, (u64, u64)),
     Buttons(bool, bool, bool, bool, Repeat),
-    Lyrics(u64, u64, bool, Option<usize>, Option<usize>, bool),
+    Lyrics(u64, u64, bool, Option<usize>, Option<(usize, bool)>, bool),
 }
 
 pub(super) struct ChromePane {
@@ -84,7 +84,7 @@ impl Render for ChromePane {
                     ChromePart::Transport => this.basic_controls("bottom", cx),
                     ChromePart::Actions => this.bottom_actions(window, cx),
                     ChromePart::ImmersiveArt => this.immersive_cover(window, cx),
-                    ChromePart::ImmersiveBackground => this.immersive_background(cx),
+                    ChromePart::ImmersiveBackground => this.immersive_background(window, cx),
                     ChromePart::ImmersiveTitle => this
                         .selected
                         .as_ref()
@@ -167,7 +167,7 @@ impl Raag {
                     generation,
                     self.artwork_revision,
                     self.library.immersive_artwork,
-                    self.immersive_palette(),
+                    self.immersive_tint(),
                 ),
                 ChromePart::ImmersiveTitle => ChromeState::Title(
                     generation,

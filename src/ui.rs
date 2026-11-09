@@ -39,58 +39,6 @@ fn ui_px(value: f32) -> Pixels {
 fn content_button(id: impl Into<ElementId>) -> ContentButton {
     ContentButton::new(id).line_height(relative(1.4))
 }
-#[derive(IntoElement)]
-struct NavigationButton {
-    id: &'static str,
-    selected: bool,
-    button: Button,
-}
-impl RenderOnce for NavigationButton {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        use gpui_kit::base::motion::{Transition, transition};
-        let amount = transition(
-            (self.id, "selection"),
-            if self.selected { 1f32 } else { 0. },
-            Transition::new(Duration::from_millis(140)),
-            window,
-            cx,
-        );
-        self.button.bg(cx.theme().sidebar_accent.opacity(amount))
-    }
-}
-#[derive(IntoElement)]
-struct HoverArtwork {
-    id: SharedString,
-    view: EntityId,
-    child: AnyElement,
-}
-impl RenderOnce for HoverArtwork {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        use gpui_kit::base::motion::{Transition, transition};
-        let hovered =
-            window.use_keyed_state((ElementId::from(self.id.clone()), "hover"), cx, |_, _| {
-                false
-            });
-        let opacity = transition(
-            self.id.clone(),
-            if *hovered.read(cx) { 0.88f32 } else { 1. },
-            Transition::new(Duration::from_millis(120)),
-            window,
-            cx,
-        );
-        div()
-            .id(self.id)
-            .w_full()
-            .opacity(opacity)
-            .child(self.child)
-            .on_hover(move |active, _, cx| {
-                if *hovered.read(cx) != *active {
-                    hovered.update(cx, |value, _| *value = *active);
-                    cx.notify(self.view);
-                }
-            })
-    }
-}
 fn playback_depth(button: Button) -> Button {
     button
         .border_1()
@@ -260,20 +208,7 @@ impl Render for ContentPane {
         self.owner
             .update(cx, |this, cx| {
                 this.images.update(cx, |cache, _| cache.begin_view(view));
-                let content = this.main_content(window, cx);
-                let started = this.page_changed_at;
-                let page = div().size_full().min_h_0().child(content);
-                let progress = started.elapsed().as_secs_f32() / 0.16;
-                if progress < 1. && !cx.reduce_motion() && window.is_window_active() {
-                    let remaining = (1. - progress).powi(3);
-                    window.on_next_frame(move |_, cx| cx.notify(view));
-                    page.opacity(1. - 0.14 * remaining)
-                        .relative()
-                        .top(ui_px(4. * remaining))
-                        .into_any_element()
-                } else {
-                    page.into_any_element()
-                }
+                this.main_content(window, cx)
             })
             .unwrap_or_else(|_| div().into_any_element())
     }
@@ -352,7 +287,7 @@ pub struct Raag {
     sidebar_scroll: crate::motion::SmoothScroll,
     lyrics_scroll: crate::motion::SmoothScroll,
     lyrics_active: Option<usize>,
-    lyrics_word: Option<usize>,
+    lyrics_word: Option<(usize, bool)>,
     lyrics_geometry: Option<(f32, f32)>,
     lyrics_follow: bool,
     offline: Arc<Vec<Track>>,
@@ -453,7 +388,6 @@ pub struct Raag {
     images: Entity<crate::images::ResidentImages>,
     missing_artwork: std::rc::Rc<std::cell::RefCell<crate::artwork_queue::PendingArtwork>>,
     artwork_attempted: std::rc::Rc<std::cell::RefCell<HashMap<String, Instant>>>,
-    page_changed_at: Instant,
     previous_track: Option<Track>,
     track_changed_at: Instant,
     playing: bool,
@@ -522,6 +456,7 @@ impl Raag {
         gpui_kit::component::set_locale(&library.language);
         window.set_rem_size(px(16. * library.ui_scale));
         theme::apply(&library, None, cx);
+        crate::motion::set_reduce_motion(library.reduce_motion, cx);
         let owner = cx.weak_entity();
         let content = cx.new(|_| ContentPane {
             owner: owner.clone(),
@@ -716,6 +651,16 @@ impl Raag {
                     window.refresh();
                 }
             });
+        cx.observe_window_activation(window, |this, window, cx| {
+            if !window.is_window_active() {
+                this.cancel_seek_preview(cx);
+            }
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            if window.is_window_active() {
+                gpui_kit::base::apply_system_reduce_motion(cx);
+            }
+        })
+        .detach();
         let pump = cx.spawn_in(window, async move |view, cx| {
             let mut delay = Duration::from_millis(33);
             loop {
@@ -872,7 +817,6 @@ impl Raag {
             images: crate::images::ResidentImages::new(cx),
             missing_artwork: Default::default(),
             artwork_attempted: Default::default(),
-            page_changed_at: Instant::now(),
             previous_track: None,
             track_changed_at: Instant::now(),
             playing: false,
@@ -1504,6 +1448,9 @@ impl Raag {
                 }
                 PlayerEvent::EngineReady => {}
                 PlayerEvent::Buffering(value) => {
+                    if value {
+                        self.cancel_seek_preview(cx);
+                    }
                     self.buffering = value;
                     panel_changed = true;
                     changed = true;
@@ -1637,6 +1584,7 @@ impl Raag {
                     changed = true;
                 }
                 PlayerEvent::Ended => {
+                    self.cancel_seek_preview(cx);
                     if self.sleep_end {
                         self.sleep_end = false;
                         self.playing = false;
@@ -1652,6 +1600,7 @@ impl Raag {
                     changed = true;
                 }
                 PlayerEvent::Error(error) => {
+                    self.cancel_seek_preview(cx);
                     self.buffering = false;
                     self.playing = false;
                     self.failed = true;
@@ -1913,7 +1862,6 @@ impl Raag {
             self.back.push(self.screen.clone());
             self.forward.clear();
             self.screen = screen;
-            self.page_changed_at = Instant::now();
             self.revision += 1;
             self.loading = false;
             self.continuation = None;
@@ -1964,7 +1912,6 @@ impl Raag {
                 self.forward.push(self.screen.clone());
             }
             self.screen = screen;
-            self.page_changed_at = Instant::now();
             self.revision += 1;
             self.loading = false;
             self.catalog = Arc::new(vec![]);
@@ -2213,6 +2160,7 @@ impl Raag {
         fetch_artwork(vec![track.clone()], self.backend.events_sender.clone());
     }
     fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        self.cancel_seek_preview(cx);
         self.library.sidebar = !self.library.sidebar;
         self.sidebar_scroll.reset();
         self.save();
@@ -2227,16 +2175,30 @@ impl Raag {
         self.seek_preview = None;
         self.seek_pending = Some((target, Instant::now()));
         self.position = target;
+        self.sync_seek_sliders(cx);
+        self.player.command(PlayerCommand::Seek(target));
+        cx.notify();
+    }
+    fn cancel_seek_preview(&mut self, cx: &mut Context<Self>) {
+        if self.seek_preview.take().is_some() {
+            self.sync_seek_sliders(cx);
+            cx.notify();
+        }
+    }
+    fn sync_seek_sliders(&self, cx: &mut Context<Self>) {
+        let fraction = if self.duration > 0. {
+            (self.position / self.duration).clamp(0., 1.)
+        } else {
+            0.
+        };
         for timeline in [&self.timeline, &self.mini_timeline] {
             timeline.update(cx, |slider, cx| {
                 *slider = SliderState::new()
                     .step(0.1)
-                    .default_value((target / self.duration * 100.) as f32);
+                    .default_value((fraction * 100.) as f32);
                 cx.notify();
             });
         }
-        self.player.command(PlayerCommand::Seek(target));
-        cx.notify();
     }
     fn sidebar_expanded(&self, window: &Window) -> bool {
         self.library.sidebar
@@ -2726,7 +2688,7 @@ impl Raag {
         } else {
             path.clone()
         };
-        if elapsed >= 0.26 || cx.reduce_motion() {
+        if elapsed >= 0.26 || crate::motion::reduce_motion(cx) {
             return container
                 .child(crate::images::picture_keyed(
                     sharp,
@@ -2777,11 +2739,6 @@ impl Raag {
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default()
         );
-        let previous = self.previous_track.as_ref().map(|track| {
-            self.artwork_path(track)
-                .map(|p| p.with_extension("soft.jpg").into())
-                .unwrap_or_else(|| self.art_source(track))
-        });
         let muted = cx.theme().muted;
         let started = self
             .artwork_arrival(track)
@@ -2794,7 +2751,7 @@ impl Raag {
             .rounded(radius)
             .overflow_hidden()
             .bg(muted);
-        if cx.reduce_motion() || started.elapsed() >= Duration::from_millis(240) {
+        if crate::motion::reduce_motion(cx) || started.elapsed() >= Duration::from_millis(240) {
             return container
                 .child(
                     img(sharp)
@@ -2804,44 +2761,21 @@ impl Raag {
                 )
                 .into_any_element();
         }
+        let base = if started > self.track_changed_at {
+            soft.map(ImageSource::from)
+        } else {
+            self.previous_track
+                .as_ref()
+                .map(|track| self.art_source(track))
+        };
         container
             .with_animation(
                 SharedString::from(key),
-                Animation::new(Duration::from_millis(if cx.reduce_motion() {
-                    1
-                } else {
-                    240
-                }))
-                .with_easing(ease_out_quint()),
+                Animation::new(Duration::from_millis(240)).with_easing(ease_out_quint()),
                 move |div, _| {
                     let phase = ease_out_quint()((started.elapsed().as_secs_f32() / 0.24).min(1.));
-                    div.when_some(previous.as_ref(), |div, source: &ImageSource| {
-                        div.child(
-                            gpui_kit::div()
-                                .absolute()
-                                .size_full()
-                                .opacity(1. - phase)
-                                .child(
-                                    img(source.clone())
-                                        .size_full()
-                                        .rounded(radius)
-                                        .object_fit(ObjectFit::Cover),
-                                ),
-                        )
-                    })
-                    .when_some(soft.as_ref(), |div, path| {
-                        div.child(
-                            gpui_kit::div()
-                                .absolute()
-                                .size_full()
-                                .opacity(1. - phase)
-                                .child(
-                                    img(path.clone())
-                                        .size_full()
-                                        .rounded(radius)
-                                        .object_fit(ObjectFit::Cover),
-                                ),
-                        )
+                    div.when_some(base.as_ref(), |div, source| {
+                        div.child(div_placeholder(source.clone(), 1., radius))
                     })
                     .child(
                         gpui_kit::div().absolute().size_full().opacity(phase).child(
@@ -2856,8 +2790,6 @@ impl Raag {
             .into_any_element()
     }
     fn playing_identity(&self, track: &Track, cx: &mut Context<Self>) -> AnyElement {
-        let started = self.track_changed_at;
-        let reduced = cx.reduce_motion();
         let muted = if self.immersive {
             rgb(0xffffff).opacity(0.65).into()
         } else {
@@ -2889,23 +2821,6 @@ impl Raag {
                     .text_color(muted)
                     .truncate()
                     .child(self.artist_link(track, cx)),
-            )
-            .with_animation(
-                ("player-identity", self.player.generation() as usize),
-                Animation::new(Duration::from_millis(if cx.reduce_motion() {
-                    1
-                } else {
-                    220
-                }))
-                .with_easing(ease_out_quint()),
-                move |div, _| {
-                    let phase = if reduced {
-                        1.
-                    } else {
-                        ease_out_quint()((started.elapsed().as_secs_f32() / 0.22).min(1.))
-                    };
-                    div.opacity(phase).mt(px((1. - phase) * 2.))
-                },
             )
             .into_any_element()
     }
@@ -3131,6 +3046,7 @@ impl Raag {
                     .w_full()
                     .flex_shrink_0()
                     .selected(selected)
+                    .when(selected, |button| button.bg(cx.theme().sidebar_accent))
                     .tooltip(label)
                     .accessibility_label(label)
                     .child(
@@ -3142,12 +3058,7 @@ impl Raag {
                             .child(icon(image))
                             .when(expanded, |div| div.child(label)),
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| this.navigate(screen.clone(), cx)))
-                    .map(|button| NavigationButton {
-                        id,
-                        selected,
-                        button,
-                    }),
+                    .on_click(cx.listener(move |this, _, _, cx| this.navigate(screen.clone(), cx))),
             );
         }
         if expanded {
@@ -4834,7 +4745,6 @@ impl Raag {
                             return;
                         }
                         this.settings_category = index;
-                        this.page_changed_at = Instant::now();
                         this.scroll.reset();
                         this.content_revision += 1;
                         cx.notify();
@@ -5013,7 +4923,7 @@ impl Render for Raag {
                     0.
                 },
             ],
-            cx.reduce_motion() || !window.is_window_active(),
+            crate::motion::reduce_motion(cx) || !window.is_window_active(),
             Instant::now(),
         );
         let [left_width, right_width, player_height] = self.shell_motion.dimensions();
@@ -5238,8 +5148,6 @@ impl Render for Raag {
                                             .flex_1()
                                             .min_h_0()
                                             .min_w_0()
-                                            // Cached paint includes inherited opacity. Keep the
-                                            // page opaque; animate individual art/text instead.
                                             .child(content)
                                             // A paint-only fade keeps scroll content continuous at the
                                             // header edge without adding hitboxes or per-frame captures.

@@ -2,6 +2,7 @@ use super::*;
 
 impl Raag {
     pub(super) fn toggle_panel(&mut self, panel: Panel, cx: &mut Context<Self>) {
+        self.cancel_seek_preview(cx);
         self.panel = if self.panel == Some(panel) {
             None
         } else {
@@ -397,15 +398,21 @@ impl Raag {
             .into_any_element()
     }
     pub(super) fn follow_lyrics(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let time = self.lyric_time();
         let active = self
             .lyrics
             .iter()
-            .rposition(|line| line.seconds.is_some_and(|time| time <= self.lyric_time()));
-        let word = active.and_then(|i| self.lyrics.get(i)).and_then(|line| {
-            line.words
-                .iter()
-                .rposition(|w| w.start <= self.lyric_time())
-        });
+            .rposition(|line| line.seconds.is_some_and(|start| start <= time));
+        let word = if self.library.lyrics.words {
+            active
+                .and_then(|line| self.lyrics.get(line))
+                .and_then(|line| {
+                    let index = line.words.iter().rposition(|word| word.start <= time)?;
+                    Some((index, time >= Self::lyric_word_end(line, index)))
+                })
+        } else {
+            None
+        };
         let line_changed = active != self.lyrics_active;
         let changed = line_changed || word != self.lyrics_word;
         self.lyrics_word = word;
@@ -446,6 +453,12 @@ impl Raag {
                 self.right_content.update(cx, |_, cx| cx.notify());
             }
         }
+    }
+    pub(super) fn lyric_word_end(line: &LyricLine, index: usize) -> f64 {
+        line.words[index]
+            .end
+            .or_else(|| line.words.get(index + 1).map(|word| word.start))
+            .unwrap_or(f64::INFINITY)
     }
     fn lyrics_panel(&self, _: &Window, cx: &mut Context<Self>) -> AnyElement {
         let Some(track) = &self.selected else {
@@ -502,8 +515,10 @@ impl Raag {
         let count = self.lyrics.len() + 4;
         let controller = self.lyrics_scroll.on_user_scroll(move |_, cx| {
             let _ = manual.update(cx, |this, cx| {
-                this.lyrics_follow = false;
-                this.right_content.update(cx, |_, cx| cx.notify());
+                if this.lyrics_follow {
+                    this.lyrics_follow = false;
+                    this.right_content.update(cx, |_, cx| cx.notify());
+                }
             });
         });
         let list = uniform_list("animated-lyrics", count, move |range, _, cx| {
@@ -528,18 +543,6 @@ impl Raag {
                                 } else {
                                     0.28
                                 });
-                            let label = if active && !cx.reduce_motion() {
-                                label
-                                    .with_animation(
-                                        ("lyric-focus", index),
-                                        Animation::new(Duration::from_millis(260))
-                                            .with_easing(ease_out_quint()),
-                                        |div, phase| div.opacity(0.55 + phase * 0.45),
-                                    )
-                                    .into_any_element()
-                            } else {
-                                label.into_any_element()
-                            };
                             content_button(("lyric-line", index))
                                 .w_full()
                                 .h(this.lyric_height())

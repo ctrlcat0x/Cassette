@@ -233,12 +233,11 @@ jobs:
           cat > release-notes.md <<'EOF'
           Cassette is a native desktop music player built with Rust and GPUI.
 
-          ### Changes in v0.7 beta
-          - Bundle a smaller JavaScript runtime and an updated yt-dlp. On Windows, use the upstream directory build to avoid unpacking Python on each play.
-          - Start matched JioSaavn playback from the first audio range. Use YouTube when the match or signed media fails.
-          - Reduce idle audio polling and keep playback updates separate from page and artwork rendering.
-          - Refresh navigation, discovery, library, settings and fullscreen playback. Add direct access to local files and offline music.
-          - Add Windows taskbar playback controls and fix a crash when hovering artwork.
+          ### Changes in v0.7.1 beta
+          - Keep visible artwork in Home shelves during rapid paging and direction changes.
+          - Recover the playback clock when buffering interrupts seeking. Update the current lyric and player title immediately.
+          - Make frequent navigation and hover feedback immediate. Ease fullscreen tint and backdrop changes.
+          - Add a Reduce motion control under Appearance. The app still follows the system preference by default.
 
           ### Features
           - Browse and search YouTube Music, with optional account library sync.

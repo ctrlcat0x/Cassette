@@ -103,6 +103,8 @@ impl Raag {
                     .rounded_lg()
                     .when(artist, |button| button.rounded_full())
                     .cursor_pointer()
+                    .hover(|art| art.opacity(0.92))
+                    .active(|art| art.opacity(0.82))
                     .accessibility_label(format!(
                         "{} {}",
                         if track.playable() {
@@ -113,12 +115,9 @@ impl Raag {
                         track.title
                     ))
                     .child(self.cover(track, rems(extent / f32::from(cx.theme().font_size)), cx))
-                    .on_click(cx.listener(move |this, _, _, cx| this.open_track(owned.clone(), cx)))
-                    .map(|button| HoverArtwork {
-                        id: SharedString::from(format!("discover-hover-{}", track.id)),
-                        view: self.content.entity_id(),
-                        child: button.into_any_element(),
-                    }),
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.open_track(owned.clone(), cx)),
+                    ),
             )
             .child(
                 div()
@@ -1206,7 +1205,7 @@ impl Raag {
             .map(|at| (at.elapsed().as_secs_f32() / 0.26).min(1.))
             .unwrap_or(1.);
         let picture = div().absolute().size_full().overflow_hidden();
-        if phase >= 1. || cx.reduce_motion() {
+        if phase >= 1. || crate::motion::reduce_motion(cx) {
             return picture
                 .child(crate::images::picture_top_keyed(
                     sharp,
