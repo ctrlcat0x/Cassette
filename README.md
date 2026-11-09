@@ -4,7 +4,7 @@
 <h1 align="center">Cassette</h1>
 <p align="center">YouTube Music and your local collection in one native desktop player.</p>
 <p align="center">
-  <a href="https://github.com/ctrlcat0x/Cassette/releases/tag/v0.8.0-beta"><strong>Get v0.8 beta</strong></a>
+  <a href="https://github.com/ctrlcat0x/Cassette/releases/tag/v0.9.0"><strong>Get v0.9</strong></a>
   · <a href="https://github.com/ctrlcat0x/Cassette/releases">All releases</a>
   · <a href="https://github.com/ctrlcat0x/Cassette/issues">Report an issue</a>
 </p>
@@ -13,9 +13,9 @@
 
 | Platform | Package | Install |
 | --- | --- | --- |
-| Windows x64 | [Portable EXE](https://github.com/ctrlcat0x/Cassette/releases/download/v0.8.0-beta/cassette-windows-x64.exe) | Run the downloaded executable. |
-| macOS Apple Silicon | [DMG](https://github.com/ctrlcat0x/Cassette/releases/download/v0.8.0-beta/cassette-macos-arm64.dmg) | Open the disk image and drag Cassette into Applications. The build is ad-hoc signed. |
-| Linux x64 | [DEB](https://github.com/ctrlcat0x/Cassette/releases/download/v0.8.0-beta/cassette-linux-x64.deb) | Run `sudo apt install ./cassette-linux-x64.deb` on Ubuntu 24.04. |
+| Windows x64 | [Portable EXE](https://github.com/ctrlcat0x/Cassette/releases/download/v0.9.0/cassette-windows-x64.exe) | Run the downloaded executable. |
+| macOS Apple Silicon | [DMG](https://github.com/ctrlcat0x/Cassette/releases/download/v0.9.0/cassette-macos-arm64.dmg) | Open the disk image and drag Cassette into Applications. The build is ad-hoc signed. |
+| Linux x64 | [DEB](https://github.com/ctrlcat0x/Cassette/releases/download/v0.9.0/cassette-linux-x64.deb) | Run `sudo apt install ./cassette-linux-x64.deb` on Ubuntu 24.04. |
 
 Cassette bundles yt-dlp and QuickJS-NG. The first launch extracts them into its private data directory. Browsing works as a guest. Connect a YouTube Music account from the profile menu to sync your library. Google sign-in on Windows uses the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
 
@@ -34,6 +34,11 @@ Cassette bundles yt-dlp and QuickJS-NG. The first launch extracts them into its 
 | Ctrl/⌘ + B | Toggle sidebar |
 | Space | Play or pause |
 | F11 | Open or close fullscreen playback |
+
+## What changed in v0.9
+
+- Choose **Local files** in **Your library**, then **Add folder…** to browse your music by album cover. Open a cover to see its tracks or play the album.
+- **Songs** shows the full local collection. **Rescan folders** refreshes artwork and track tags for previously added folders.
 
 ## What changed in v0.8
 

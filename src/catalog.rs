@@ -840,6 +840,7 @@ pub(crate) fn parse_renderer(value: &Value) -> Option<Track> {
         duration: seconds,
         artwork,
         kind,
+        local_metadata: None,
     })
 }
 

@@ -2,11 +2,45 @@ use crate::{ItemKind, Track};
 use anyhow::{Context, Result, bail};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
+    io::{Cursor, Read},
     path::{Path, PathBuf},
 };
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LocalAlbumKey {
+    Tagged(String, String),
+    Folder(PathBuf, String),
+}
+
+impl LocalAlbumKey {
+    pub fn for_track(track: &Track) -> Self {
+        let title = track.album.trim().to_lowercase();
+        if !title.is_empty()
+            && let Some(artist) = track
+                .local_metadata
+                .as_ref()
+                .and_then(|tag| tag.album_artist.as_deref())
+        {
+            return Self::Tagged(title, artist.to_lowercase());
+        }
+        let folder = Path::new(&track.id)
+            .parent()
+            .unwrap_or_else(|| Path::new(""));
+        Self::Folder(folder.to_owned(), title)
+    }
+}
+
+pub struct LocalAlbum {
+    pub key: LocalAlbumKey,
+    pub title: String,
+    pub artist: String,
+    pub artwork: Option<String>,
+    pub track_count: usize,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -287,6 +321,7 @@ impl Library {
         let before = self.local.len();
         let mut known: HashSet<_> = self.local.iter().map(|track| track.id.clone()).collect();
         let mut pending: Vec<_> = paths.iter().rev().cloned().collect();
+        let mut folder_covers = HashMap::new();
         while let Some(path) = pending.pop() {
             if path.is_dir() {
                 // A chosen folder is scanned once; symlink directories are not followed.
@@ -304,11 +339,142 @@ impl Library {
                 && path.is_file()
                 && known.insert(path.to_string_lossy().into_owned())
             {
-                self.local.push(Track::local(&path));
+                let mut track = Track::local(&path);
+                if track.artwork.is_none()
+                    && let Some(folder) = path.parent()
+                {
+                    track.artwork = folder_covers
+                        .entry(folder.to_owned())
+                        .or_insert_with(|| folder_cover(folder))
+                        .clone();
+                }
+                self.local.push(track);
             }
         }
         self.local.len() - before
     }
+
+    pub fn local_albums(&self) -> Vec<LocalAlbum> {
+        let mut albums = HashMap::new();
+        for track in &self.local {
+            let key = LocalAlbumKey::for_track(track);
+            let artist = track
+                .local_metadata
+                .as_ref()
+                .and_then(|tag| tag.album_artist.as_deref())
+                .unwrap_or(&track.artist);
+            let album = albums.entry(key.clone()).or_insert_with(|| LocalAlbum {
+                key,
+                title: if track.album.trim().is_empty() {
+                    Path::new(&track.id)
+                        .parent()
+                        .and_then(Path::file_name)
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                } else {
+                    track.album.trim().to_owned()
+                },
+                artist: artist.to_owned(),
+                artwork: None,
+                track_count: 0,
+            });
+            album.track_count += 1;
+            if album.artist != artist {
+                album.artist.clear();
+            }
+            if album.artwork.is_none() {
+                album.artwork.clone_from(&track.artwork);
+            }
+        }
+        let mut albums: Vec<_> = albums.into_values().collect();
+        albums.sort_by_cached_key(|album| {
+            (
+                album.title.to_lowercase(),
+                album.artist.to_lowercase(),
+                album.key.clone(),
+            )
+        });
+        albums
+    }
+
+    pub fn local_album_tracks(&self, key: &LocalAlbumKey) -> Vec<Track> {
+        let mut tracks: Vec<_> = self
+            .local
+            .iter()
+            .filter(|track| LocalAlbumKey::for_track(track) == *key)
+            .cloned()
+            .collect();
+        tracks.sort_by_cached_key(|track| {
+            let metadata = track.local_metadata.as_ref();
+            (
+                metadata.and_then(|tag| tag.disc).unwrap_or(1),
+                metadata.and_then(|tag| tag.number).unwrap_or(u32::MAX),
+                Path::new(&track.id)
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_ascii_lowercase(),
+                track.id.clone(),
+            )
+        });
+        tracks
+    }
+}
+
+const MAX_COVER_BYTES: usize = 8 * 1024 * 1024;
+
+fn folder_cover(folder: &Path) -> Option<String> {
+    let names = ["cover", "folder", "front"];
+    let mut candidates: Vec<_> = fs::read_dir(folder)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let stem = path.file_stem()?.to_str()?;
+            let rank = names
+                .iter()
+                .position(|name| stem.eq_ignore_ascii_case(name))?;
+            let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+            (matches!(extension.as_str(), "jpg" | "jpeg" | "png")
+                && entry.file_type().ok()?.is_file())
+            .then_some((rank, path))
+        })
+        .collect();
+    candidates.sort_unstable();
+    candidates.into_iter().find_map(|(_, path)| {
+        let mut bytes = Vec::new();
+        fs::File::open(path)
+            .ok()?
+            .take(MAX_COVER_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        store_local_cover(&bytes)
+    })
+}
+
+pub(crate) fn store_local_cover(bytes: &[u8]) -> Option<String> {
+    if bytes.len() > MAX_COVER_BYTES {
+        return None;
+    }
+    let directory = data_dir().join("artwork");
+    let target = directory.join(format!("local-v2-{:x}.jpg", Sha256::digest(bytes)));
+    if !target.is_file() {
+        let mut reader = image::ImageReader::new(Cursor::new(bytes))
+            .with_guessed_format()
+            .ok()?;
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(4096);
+        limits.max_image_height = Some(4096);
+        limits.max_alloc = Some(64 * 1024 * 1024);
+        reader.limits(limits);
+        let image = reader.decode().ok()?.thumbnail(768, 768).into_rgb8();
+        fs::create_dir_all(&directory).ok()?;
+        let mut temporary = tempfile::NamedTempFile::new_in(directory).ok()?;
+        image
+            .write_to(&mut temporary, image::ImageFormat::Jpeg)
+            .ok()?;
+        temporary.persist(&target).ok()?;
+    }
+    Some(target.to_string_lossy().into_owned())
 }
 
 pub fn is_audio(path: &Path) -> bool {

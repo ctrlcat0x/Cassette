@@ -646,9 +646,14 @@ pub fn maintain_artwork() -> Result<()> {
     for track in offline_tracks()
         .iter()
         .chain(&library.liked)
+        .chain(&library.local)
         .chain(library.playlists.iter().flat_map(|p| &p.tracks))
     {
         if let Some(url) = &track.artwork {
+            if Path::new(url).is_absolute() {
+                protected.insert(PathBuf::from(url));
+                continue;
+            }
             let path = artwork_path(url);
             protected.insert(path.with_extension("soft.jpg"));
             protected.insert(path.with_extension("hero.jpg"));

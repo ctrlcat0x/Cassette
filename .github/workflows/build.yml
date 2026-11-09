@@ -228,12 +228,10 @@ jobs:
           cat > release-notes.md <<'EOF'
           Cassette is a native desktop music player built with Rust and GPUI.
 
-          ### Changes in v0.8 beta
-          - Keep scrolling inside open popups, blend arriving artwork over an opaque base, and fade status notices in briefly. Loading indicators stay static with Reduce motion.
-          - Stop cancelled audio reads promptly. Keep prefetched streams from bypassing offline mode, and keep the crossfade volume envelope during volume changes.
-          - Keep automatic caching out of private listening sessions, and preserve the offline index when a file cannot be removed.
-          - Scan local music without restoring tracks removed during the scan. Keep portable playlist files free of account-only fields.
-          - Keep shutdown saves independent of the UI event queue, and report startup verification failures through the process exit code.
+          ### Changes in v0.9
+          - Open **Your library**, choose **Local files**, then select **Add folder…** to browse your music as an album cover grid.
+          - Open a cover for its track list. **Play album** follows disc and track order when shuffle is off. The **Songs** tab shows the full local collection.
+          - Cassette reads embedded covers and looks for `cover`, `folder`, or `front` JPEG and PNG files. Use **Rescan folders** or add an existing folder again to refresh its artwork and track tags.
 
           ### Features
           - Browse and search YouTube Music, with optional account library sync.

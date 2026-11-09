@@ -468,7 +468,7 @@ impl Raag {
                         })),
                 )
                 .when(
-                    matches!(self.screen, Screen::Collection(..) | Screen::Local),
+                    matches!(self.screen, Screen::Collection(..) | Screen::LocalSongs | Screen::LocalAlbum(..)),
                     |body| {
                         body.child(
                             Button::new("remove-selected")
@@ -509,15 +509,6 @@ impl Raag {
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.download_tracks(selected.clone(), cx)
                         })),
-                )
-            })
-            .when(matches!(self.screen, Screen::Local), |body| {
-                body.child(
-                    Button::new("rescan-local")
-                        .ghost()
-                        .label(t("Rescan folders"))
-                        .disabled(self.local_scan.is_some() || self.library.local_folders.is_empty())
-                        .on_click(cx.listener(|this, _, _, cx| this.rescan_local(cx))),
                 )
             })
             .when(matches!(self.screen, Screen::Collection(..)), |body| {
@@ -577,10 +568,11 @@ impl Raag {
                     });
                 }
             }
-            Screen::Local => {
+            Screen::LocalSongs | Screen::LocalAlbum(..) => {
                 self.library
                     .local
                     .retain(|t| !self.selected_rows.contains(&Self::row_key(t)));
+                self.local_albums = Arc::new(self.library.local_albums());
                 self.save();
             }
             _ => return,
@@ -589,7 +581,7 @@ impl Raag {
         self.refresh_visible();
         cx.notify();
     }
-    fn rescan_local(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn rescan_local(&mut self, cx: &mut Context<Self>) {
         self.scan_local(self.library.local_folders.clone(), cx);
     }
     pub(super) fn discovery_controls(&self, cx: &mut Context<Self>) -> Div {

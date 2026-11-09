@@ -19,7 +19,7 @@ use raag::{
     catalog::LyricLine,
     clock,
     i18n::t,
-    library::{Library, data_dir},
+    library::{Library, LocalAlbum, LocalAlbumKey, data_dir},
     playback::{Player, PlayerCommand, PlayerEvent},
     queue::{Queue, Repeat},
     rotation, tr,
@@ -83,6 +83,7 @@ mod equalizer;
 mod features;
 mod home;
 mod immersive;
+mod local;
 mod panels;
 mod recap;
 use chrome::{ChromePane, ChromePart};
@@ -165,6 +166,8 @@ enum Screen {
     Liked,
     Recents,
     Local,
+    LocalSongs,
+    LocalAlbum(LocalAlbumKey, String),
     Search,
     Collection(String, String, bool),
     Discover(String, String, String),
@@ -184,7 +187,8 @@ impl Screen {
             Self::Library => t("Your library"),
             Self::Liked => t("Liked songs"),
             Self::Recents => t("Recently played"),
-            Self::Local => t("Local files"),
+            Self::Local | Self::LocalSongs => t("Local files"),
+            Self::LocalAlbum(_, title) => title,
             Self::Search => t("Search"),
             Self::Collection(_, title, _) => title,
             Self::Discover(_, _, title) => t(title),
@@ -306,6 +310,7 @@ pub struct Raag {
     listening: raag::stats::ListeningSession,
     private_session: bool,
     local_scan: Option<std::collections::HashSet<String>>,
+    local_albums: Arc<Vec<LocalAlbum>>,
     stats_saved: Instant,
     back: Vec<Screen>,
     forward: Vec<Screen>,
@@ -737,6 +742,7 @@ impl Raag {
             listening: raag::stats::ListeningSession::default(),
             private_session: false,
             local_scan: None,
+            local_albums: Arc::new(library.local_albums()),
             stats_saved: Instant::now(),
             back: vec![],
             forward: vec![],
@@ -872,6 +878,9 @@ impl Raag {
             Screen::Search => self.search_screen(window, cx),
             Screen::Collection(..) => self.collection_screen(window, cx),
             Screen::Library => self.library_screen(window, cx),
+            Screen::Local | Screen::LocalSongs | Screen::LocalAlbum(..) => {
+                self.local_screen(window, cx)
+            }
             Screen::Lyrics => self.lyrics_screen(cx),
             Screen::Settings => self.settings(window, cx),
             Screen::Recap => self.recap_screen(window, cx),
@@ -1415,6 +1424,7 @@ impl Raag {
                         .enumerate()
                         .map(|(index, track)| (track.id.clone(), index))
                         .collect();
+                    let found = !tracks.is_empty();
                     let mut count = 0;
                     for track in tracks {
                         if let Some(&index) = indices.get(&track.id) {
@@ -1424,7 +1434,14 @@ impl Raag {
                             count += 1;
                         }
                     }
-                    self.notice = Some(tr!("Added {count} local tracks"));
+                    self.notice = Some(if !found {
+                        t("No audio files found").to_owned()
+                    } else if count == 0 {
+                        t("Local library updated").to_owned()
+                    } else {
+                        tr!("Added {count} local tracks")
+                    });
+                    self.local_albums = Arc::new(self.library.local_albums());
                     self.save();
                     self.refresh_visible();
                     changed = true;
@@ -1803,7 +1820,9 @@ impl Raag {
             }
             Screen::Liked | Screen::Library => Arc::new(self.library.liked.clone()),
             Screen::Recents => Arc::new(self.recent_tracks()),
-            Screen::Local => Arc::new(self.library.local.clone()),
+            Screen::Local => Arc::new(Vec::new()),
+            Screen::LocalSongs => Arc::new(self.library.local.clone()),
+            Screen::LocalAlbum(key, _) => Arc::new(self.library.local_album_tracks(key)),
             Screen::Offline => self.offline.clone(),
             Screen::Collection(id, _, true) => Arc::new(
                 self.library
@@ -1844,7 +1863,8 @@ impl Raag {
             self.screen,
             Screen::Library
                 | Screen::Liked
-                | Screen::Local
+                | Screen::LocalSongs
+                | Screen::LocalAlbum(..)
                 | Screen::Offline
                 | Screen::Collection(..)
         ) {
@@ -2009,10 +2029,7 @@ impl Raag {
                 // Recent Home tiles may originate from account history rather than the catalog shelves.
                 tracks.insert(0, track.clone());
             }
-            self.queue.replace_selected(tracks, &track);
-            self.invalidate_collection();
-            self.complete_collection(false);
-            self.start(track, cx);
+            self.play_tracks(track, tracks, cx);
         } else {
             let seed = track.clone();
             self.navigate(
@@ -2023,6 +2040,13 @@ impl Raag {
             self.request(|id| Request::Browse(id, track.id, track.title), cx);
         }
     }
+    fn play_tracks(&mut self, track: Track, tracks: Vec<Track>, cx: &mut Context<Self>) {
+        self.queue.replace_selected(tracks, &track);
+        self.invalidate_collection();
+        self.complete_collection(false);
+        self.start(track, cx);
+    }
+
     fn start(&mut self, track: Track, cx: &mut Context<Self>) {
         self.right_content.update(cx, |_, cx| cx.notify());
         self.listening = raag::stats::ListeningSession::default();
@@ -2259,20 +2283,29 @@ impl Raag {
             - right / self.library.ui_scale)
             .max(280.)
     }
-    fn import(&mut self, cx: &mut Context<Self>) {
+    fn import(&mut self, folders: bool, cx: &mut Context<Self>) {
         if self.local_scan.is_some() {
             return;
         }
         let prompt = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: true,
+            files: !folders,
+            directories: folders,
             multiple: true,
-            prompt: Some(t("Add music files or a folder").into()),
+            prompt: Some(
+                if folders {
+                    t("Add folder…")
+                } else {
+                    t("Add files…")
+                }
+                .into(),
+            ),
         });
         cx.spawn(async move |view, cx| {
             if let Ok(Ok(Some(paths))) = prompt.await {
                 let _ = view.update(cx, |this, cx| {
-                    this.navigate(Screen::Local, cx);
+                    if !matches!(this.screen, Screen::Local | Screen::LocalSongs) {
+                        this.navigate(Screen::Local, cx);
+                    }
                     this.scan_local(paths, cx);
                 });
             }
@@ -3075,7 +3108,9 @@ impl Raag {
             ("local", t("Local files"), "folder", Screen::Local),
             ("offline", t("Offline music"), "download", Screen::Offline),
         ] {
-            let selected = self.screen == screen;
+            let selected = self.screen == screen
+                || (screen == Screen::Local
+                    && matches!(self.screen, Screen::LocalSongs | Screen::LocalAlbum(..)));
             navigation = navigation.child(
                 Button::new(id)
                     .ghost()
@@ -4144,8 +4179,16 @@ impl Raag {
                 t("Your listening story starts here."),
                 t("Play a song and it will appear in your history."),
             ),
-            Screen::Local => (
-                t("Your files. Your favourites."),
+            Screen::LocalSongs | Screen::LocalAlbum(..) if !self.browse_filter.is_empty() => (
+                t("No results found"),
+                t("Try another song, artist or album."),
+            ),
+            Screen::LocalSongs => (
+                t("No local music yet"),
+                t("Add a folder or audio files from this computer."),
+            ),
+            Screen::LocalAlbum(..) => (
+                t("This album is empty"),
                 t("Add a folder or audio files from this computer."),
             ),
             Screen::Queue => (
@@ -4182,7 +4225,7 @@ impl Raag {
             .child(
                 icon(match self.screen {
                     Screen::Liked => "heart",
-                    Screen::Local => "folder",
+                    Screen::LocalSongs | Screen::LocalAlbum(..) => "folder",
                     Screen::Offline => "download",
                     Screen::Search => "search",
                     Screen::Queue => "now-playing",
@@ -4214,15 +4257,6 @@ impl Raag {
                         detail
                     }),
             )
-            .when(self.screen == Screen::Local, |div| {
-                div.child(
-                    Button::new("import-empty")
-                        .label(t("Add music…"))
-                        .disabled(self.local_scan.is_some())
-                        .icon(icon("plus"))
-                        .on_click(cx.listener(|this, _, _, cx| this.import(cx))),
-                )
-            })
             .when(
                 matches!(self.screen, Screen::Explore | Screen::Discover(..)),
                 |div| {
@@ -4281,7 +4315,6 @@ impl Raag {
             .gap_4()
             .child(self.title(
                 match self.screen {
-                    Screen::Local => t("Your files. Your favourites."),
                     Screen::Offline => {
                         t("Your local files and downloaded songs are still available.")
                     }
@@ -4289,14 +4322,6 @@ impl Raag {
                 },
                 cx,
             ));
-        if self.screen == Screen::Local && self.local_scan.is_some() {
-            body = body.child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(t("Scanning local files…")),
-            );
-        }
         if !self.visible.is_empty() || !self.browse_filter.is_empty() || self.selecting {
             body = body.child(self.collection_tools(cx));
         }
@@ -4358,16 +4383,6 @@ impl Raag {
                             this.open_track(track, cx);
                         }
                     })),
-            );
-        }
-        if self.screen == Screen::Local {
-            actions = actions.child(
-                Button::new("add-local")
-                    .ghost()
-                    .icon(icon("plus"))
-                    .label(t("Add music…"))
-                    .disabled(self.local_scan.is_some())
-                    .on_click(cx.listener(|this, _, _, cx| this.import(cx))),
             );
         }
         if self.screen == Screen::Queue {
@@ -5139,7 +5154,7 @@ impl Render for Raag {
             .on_action(
                 cx.listener(|this, _: &Fullscreen, window, cx| this.toggle_immersive(window, cx)),
             )
-            .on_action(cx.listener(|this, _: &ImportFiles, _, cx| this.import(cx)))
+            .on_action(cx.listener(|this, _: &ImportFiles, _, cx| this.import(false, cx)))
             .child(
                 gpui_kit::div()
                     .absolute()

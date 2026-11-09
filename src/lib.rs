@@ -39,6 +39,13 @@ pub struct ArtistRef {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalMetadata {
+    pub album_artist: Option<String>,
+    pub disc: Option<u32>,
+    pub number: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Track {
     #[serde(default)]
@@ -60,6 +67,8 @@ pub struct Track {
     pub duration: u64,
     pub artwork: Option<String>,
     pub kind: ItemKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_metadata: Option<LocalMetadata>,
 }
 
 impl Track {
@@ -109,7 +118,8 @@ impl Track {
         // Runs on the import worker, never on a render or playback-clock path.
         use lofty::{
             file::{AudioFile, TaggedFileExt},
-            tag::Accessor,
+            picture::PictureType,
+            tag::{Accessor, ItemKey},
         };
         if let Ok(file) = lofty::read_from_path(path) {
             track.duration = file.properties().duration().as_secs();
@@ -121,35 +131,24 @@ impl Track {
                     track.artist = artist.into_owned();
                 }
                 if let Some(album) = tag.album() {
-                    track.album = album.into_owned();
+                    track.album = album.trim().to_owned();
                 }
-                if let Some(picture) = tag
-                    .pictures()
-                    .first()
-                    .filter(|p| p.data().len() <= 8 * 1024 * 1024)
-                {
-                    let image = (|| -> image::ImageResult<image::DynamicImage> {
-                        let mut reader =
-                            image::ImageReader::new(std::io::Cursor::new(picture.data()))
-                                .with_guessed_format()?;
-                        let mut limits = image::Limits::default();
-                        limits.max_image_width = Some(4096);
-                        limits.max_image_height = Some(4096);
-                        limits.max_alloc = Some(64 * 1024 * 1024);
-                        reader.limits(limits);
-                        reader.decode()
-                    })();
-                    if let Ok(image) = image {
-                        let target = crate::library::data_dir()
-                            .join("artwork")
-                            .join(format!("local-{}.jpg", crate::cache::key(&track.id)));
-                        if std::fs::create_dir_all(target.parent().unwrap()).is_ok()
-                            && image.thumbnail(768, 768).save(&target).is_ok()
-                        {
-                            track.artwork = Some(target.to_string_lossy().into_owned());
-                        }
-                    }
-                }
+                track.local_metadata = Some(LocalMetadata {
+                    album_artist: tag
+                        .get_string(&ItemKey::AlbumArtist)
+                        .map(str::trim)
+                        .filter(|artist| !artist.is_empty())
+                        .map(str::to_owned),
+                    disc: tag.disk().filter(|number| *number > 0),
+                    number: tag.track().filter(|number| *number > 0),
+                });
+                let pictures = tag.pictures();
+                let front = pictures
+                    .iter()
+                    .find(|picture| picture.pic_type() == PictureType::CoverFront);
+                track.artwork = front
+                    .or_else(|| pictures.first())
+                    .and_then(|picture| crate::library::store_local_cover(picture.data()));
             }
         }
         track

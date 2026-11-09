@@ -395,8 +395,18 @@ impl Raag {
                     .child(
                         div()
                             .flex()
+                            .flex_wrap()
                             .items_center()
                             .gap_2()
+                            .child(
+                                Button::new("library-local-files")
+                                    .ghost()
+                                    .icon(icon("folder"))
+                                    .label(t("Local files"))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.navigate(Screen::Local, cx)
+                                    })),
+                            )
                             .child(
                                 Button::new("library-create")
                                     .primary()
@@ -416,7 +426,6 @@ impl Raag {
                                         for (label, command) in [
                                             (t("Import playlist…"), 0),
                                             (t("New local playlist…"), 1),
-                                            (t("Local files"), 2),
                                             (t("Liked songs"), 3),
                                             (t("New folder"), 4),
                                             (t("New smart playlist"), 5),
@@ -434,9 +443,6 @@ impl Raag {
                                                                 1 => this.begin_playlist(
                                                                     false, window, cx,
                                                                 ),
-                                                                2 => {
-                                                                    this.navigate(Screen::Local, cx)
-                                                                }
                                                                 3 => {
                                                                     this.navigate(Screen::Liked, cx)
                                                                 }

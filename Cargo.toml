@@ -1,6 +1,6 @@
 [package]
 name = "raag"
-version = "0.8.0-beta"
+version = "0.9.0"
 edition = "2024"
 description = "A native, keyboard-friendly music player built with Rust and GPUI"
 license = "MIT"

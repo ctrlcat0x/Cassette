@@ -23,6 +23,58 @@
     "स्थानीय फ़ाइलें",
     "Archivos locales"
   ],
+  "Add folder…": [
+    "फ़ोल्डर जोड़ें…",
+    "Añadir carpeta…"
+  ],
+  "Add files…": [
+    "फ़ाइलें जोड़ें…",
+    "Añadir archivos…"
+  ],
+  "Music from folders and files on this computer.": [
+    "इस कंप्यूटर के फ़ोल्डर और फ़ाइलों का संगीत।",
+    "Música de las carpetas y archivos de este equipo."
+  ],
+  "No local albums yet": [
+    "अभी कोई स्थानीय एल्बम नहीं है",
+    "Aún no hay álbumes locales"
+  ],
+  "Add a music folder to browse your albums here.": [
+    "अपने एल्बम यहाँ देखने के लिए संगीत का फ़ोल्डर जोड़ें।",
+    "Añade una carpeta de música para ver tus álbumes aquí."
+  ],
+  "Untitled album": [
+    "बिना शीर्षक का एल्बम",
+    "Álbum sin título"
+  ],
+  "Play album": [
+    "एल्बम चलाएँ",
+    "Reproducir álbum"
+  ],
+  "This album is empty": [
+    "यह एल्बम खाली है",
+    "Este álbum está vacío"
+  ],
+  "No local music yet": [
+    "अभी कोई स्थानीय संगीत नहीं है",
+    "Aún no hay música local"
+  ],
+  "No audio files found": [
+    "कोई ऑडियो फ़ाइल नहीं मिली",
+    "No se encontraron archivos de audio"
+  ],
+  "Local library updated": [
+    "स्थानीय लाइब्रेरी अपडेट हो गई",
+    "Biblioteca local actualizada"
+  ],
+  "1 track": [
+    "1 गाना",
+    "1 pista"
+  ],
+  "{count} tracks": [
+    "{count} गाने",
+    "{count} pistas"
+  ],
   "Scanning local files…": [
     "स्थानीय फ़ाइलें स्कैन हो रही हैं…",
     "Buscando archivos locales…"
