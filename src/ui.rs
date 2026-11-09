@@ -1026,23 +1026,18 @@ impl Raag {
             cx.notify();
         }
         let _domain = raag::diagnostics::enter(raag::diagnostics::Domain::Ui);
-        while let Some(command) = self
-            .instance
-            .poll()
-            .or_else(|| self.system.as_ref().and_then(crate::system::System::poll))
-            .or_else(|| {
-                #[cfg(target_os = "windows")]
-                {
-                    self.taskbar
-                        .as_ref()
-                        .and_then(|taskbar| taskbar.events.try_recv().ok())
-                }
-                #[cfg(not(target_os = "windows"))]
-                {
-                    None
-                }
-            })
-        {
+        loop {
+            let command = self
+                .instance
+                .poll()
+                .or_else(|| self.system.as_ref().and_then(crate::system::System::poll));
+            #[cfg(target_os = "windows")]
+            let command = command.or_else(|| {
+                self.taskbar
+                    .as_ref()
+                    .and_then(|taskbar| taskbar.events.try_recv().ok())
+            });
+            let Some(command) = command else { break };
             match command {
                 crate::system::Command::Show => {
                     crate::system::show(window, cx);
