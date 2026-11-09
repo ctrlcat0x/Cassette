@@ -39,6 +39,15 @@ fn ui_px(value: f32) -> Pixels {
 fn content_button(id: impl Into<ElementId>) -> ContentButton {
     ContentButton::new(id).line_height(relative(1.4))
 }
+fn loading_indicator(cx: &App) -> AnyElement {
+    if crate::motion::reduce_motion(cx) {
+        icon("clock").size(ui_px(12.)).into_any_element()
+    } else {
+        gpui_kit::component::spinner::Spinner::new()
+            .small()
+            .into_any_element()
+    }
+}
 fn playback_depth(button: Button) -> Button {
     button
         .border_1()
@@ -296,6 +305,7 @@ pub struct Raag {
     source_offline: bool,
     listening: raag::stats::ListeningSession,
     private_session: bool,
+    local_scan: Option<std::collections::HashSet<String>>,
     stats_saved: Instant,
     back: Vec<Screen>,
     forward: Vec<Screen>,
@@ -726,6 +736,7 @@ impl Raag {
             source_offline: false,
             listening: raag::stats::ListeningSession::default(),
             private_session: false,
+            local_scan: None,
             stats_saved: Instant::now(),
             back: vec![],
             forward: vec![],
@@ -1003,6 +1014,10 @@ impl Raag {
         }
         let mut changed = false;
         let mut panel_changed = false;
+        if let Ok(error) = self.backend.save_errors.try_recv() {
+            self.notice = Some(error);
+            changed = true;
+        }
         while let Some(event) = self.auth.poll() {
             match event {
                 crate::auth_controller::AuthEvent::Changed(generation, notice)
@@ -1029,6 +1044,9 @@ impl Raag {
                 .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
             self.downloads.cancel();
             self.account.reset();
+            self.suggestion_revision = self.suggestion_revision.wrapping_add(1);
+            self.suggestion_pending = None;
+            self.suggestions.clear();
             self.pending_edits.clear();
             self.playlist_editor_remote = false;
             if auth_snapshot.session.is_some() {
@@ -1381,27 +1399,32 @@ impl Raag {
                     panel_changed = true;
                     changed = true;
                 }
-                Event::Saved(Err(message)) => {
-                    self.notice = Some(message);
-                    changed = true;
-                }
-                Event::Imported(library, count) => {
-                    for folder in library.local_folders {
+                Event::LocalScan(folders, tracks) => {
+                    let Some(previous) = self.local_scan.take() else {
+                        continue;
+                    };
+                    for folder in folders {
                         if !self.library.local_folders.contains(&folder) {
                             self.library.local_folders.push(folder);
                         }
                     }
-                    for track in library.local {
-                        if let Some(existing) =
-                            self.library.local.iter_mut().find(|t| t.id == track.id)
-                        {
-                            *existing = track;
-                        } else {
+                    let indices: HashMap<_, _> = self
+                        .library
+                        .local
+                        .iter()
+                        .enumerate()
+                        .map(|(index, track)| (track.id.clone(), index))
+                        .collect();
+                    let mut count = 0;
+                    for track in tracks {
+                        if let Some(&index) = indices.get(&track.id) {
+                            self.library.local[index] = track;
+                        } else if !previous.contains(&track.id) {
                             self.library.local.push(track);
+                            count += 1;
                         }
                     }
                     self.notice = Some(tr!("Added {count} local tracks"));
-                    self.loading = false;
                     self.save();
                     self.refresh_visible();
                     changed = true;
@@ -1527,7 +1550,10 @@ impl Raag {
                             }
                             let persistent =
                                 !self.private_session && self.library.stats.qualify(&track.id);
-                            if track.kind == ItemKind::Song {
+                            if !self.private_session
+                                && !self.library.offline_only
+                                && track.kind == ItemKind::Song
+                            {
                                 let _ = self.backend.caches.send((
                                     track.clone(),
                                     persistent,
@@ -2234,6 +2260,9 @@ impl Raag {
             .max(280.)
     }
     fn import(&mut self, cx: &mut Context<Self>) {
+        if self.local_scan.is_some() {
+            return;
+        }
         let prompt = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: true,
@@ -2244,18 +2273,31 @@ impl Raag {
             if let Ok(Ok(Some(paths))) = prompt.await {
                 let _ = view.update(cx, |this, cx| {
                     this.navigate(Screen::Local, cx);
-                    this.loading = true;
-                    let mut library = this.library.clone();
-                    let sender = this.backend.events_sender.clone();
-                    std::thread::spawn(move || {
-                        let count = library.import_paths(&paths);
-                        let _ = sender.send(Event::Imported(Box::new(library), count));
-                    });
-                    cx.notify();
+                    this.scan_local(paths, cx);
                 });
             }
         })
         .detach();
+    }
+    fn scan_local(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        if self.local_scan.is_some() {
+            return;
+        }
+        self.local_scan = Some(
+            self.library
+                .local
+                .iter()
+                .map(|track| track.id.clone())
+                .collect(),
+        );
+        let sender = self.backend.events_sender.clone();
+        std::thread::spawn(move || {
+            let mut scanned = Library::default();
+            scanned.import_paths(&paths);
+            let _ = sender.send(Event::LocalScan(scanned.local_folders, scanned.local));
+        });
+        self.content_revision += 1;
+        cx.notify();
     }
     fn reset_player(&mut self, cx: &mut Context<Self>) {
         let replacement =
@@ -2698,25 +2740,19 @@ impl Raag {
                 ))
                 .into_any_element();
         }
-        let soft = path.with_extension("soft.jpg");
         container
             .with_animation(
                 SharedString::from(format!("art-reveal-{}-{}", track.id, path.display())),
-                Animation::new(Duration::from_millis(260)).with_easing(ease_out_quint()),
+                Animation::new(Duration::from_millis(260)),
                 move |div, _| {
                     // Arrival time survives reparenting and bounds changes.
-                    let phase = ease_out_quint()(
+                    let phase = crate::motion::ease_out()(
                         arrived
                             .map(|time| time.elapsed().as_secs_f32() / 0.26)
                             .unwrap_or(1.)
                             .min(1.),
                     );
-                    div.child(div_placeholder(placeholder.clone(), 1. - phase, radius))
-                        .child(div_placeholder(
-                            soft.clone().into(),
-                            (1. - phase) * phase * 2.,
-                            radius,
-                        ))
+                    div.child(div_placeholder(placeholder.clone(), 1., radius))
                         .child(div_placeholder(sharp.clone().into(), phase, radius))
                 },
             )
@@ -3131,9 +3167,7 @@ impl Raag {
                     .when(!self.buffering, |button| {
                         button.icon(icon(if self.playing { "pause" } else { "play" }))
                     })
-                    .when(self.buffering, |button| {
-                        button.child(gpui_kit::component::spinner::Spinner::new().small())
-                    })
+                    .when(self.buffering, |button| button.child(loading_indicator(cx)))
                     .tooltip(if self.buffering {
                         t("Cancel loading")
                     } else if self.failed {
@@ -4184,6 +4218,7 @@ impl Raag {
                 div.child(
                     Button::new("import-empty")
                         .label(t("Add music…"))
+                        .disabled(self.local_scan.is_some())
                         .icon(icon("plus"))
                         .on_click(cx.listener(|this, _, _, cx| this.import(cx))),
                 )
@@ -4254,6 +4289,14 @@ impl Raag {
                 },
                 cx,
             ));
+        if self.screen == Screen::Local && self.local_scan.is_some() {
+            body = body.child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(t("Scanning local files…")),
+            );
+        }
         if !self.visible.is_empty() || !self.browse_filter.is_empty() || self.selecting {
             body = body.child(self.collection_tools(cx));
         }
@@ -4323,6 +4366,7 @@ impl Raag {
                     .ghost()
                     .icon(icon("plus"))
                     .label(t("Add music…"))
+                    .disabled(self.local_scan.is_some())
                     .on_click(cx.listener(|this, _, _, cx| this.import(cx))),
             );
         }
@@ -4570,6 +4614,49 @@ impl Raag {
             self.flush();
             true
         }
+    }
+    fn status_notice(&self, message: &str, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let notice = div()
+            .absolute()
+            .bottom_4()
+            .left_8()
+            .max_w(ui_px(400.))
+            .mr_8()
+            .border_1()
+            .border_color(cx.theme().border)
+            .flex()
+            .items_center()
+            .gap_3()
+            .p_3()
+            .rounded_lg()
+            .shadow_lg()
+            .bg(cx.theme().popover)
+            .text_color(cx.theme().popover_foreground)
+            .text_sm()
+            .line_height(relative(1.4))
+            .child(div().flex_1().min_w_0().child(message.to_owned()))
+            .child(
+                Button::new("dismiss-notice")
+                    .ghost()
+                    .small()
+                    .icon(icon("xmark"))
+                    .tooltip(t("Dismiss"))
+                    .accessibility_label(t("Dismiss message"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.notice = None;
+                        cx.notify();
+                    })),
+            );
+        if crate::motion::reduce_motion(cx) || !window.is_window_active() {
+            return notice.into_any_element();
+        }
+        notice
+            .with_animation(
+                "status-notice",
+                Animation::new(Duration::from_millis(140)).with_easing(crate::motion::ease_out()),
+                |notice, phase| notice.opacity(0.75 + 0.25 * phase),
+            )
+            .into_any_element()
     }
     fn set_start_at_login(&mut self, enabled: bool, cx: &mut Context<Self>) {
         if self.startup_busy {
@@ -5178,48 +5265,7 @@ impl Render for Raag {
                                                 },
                                             )
                                             .when_some(self.notice.as_ref(), |page, message| {
-                                                page.child(
-                                                    div()
-                                                        .absolute()
-                                                        .bottom_4()
-                                                        .left_8()
-                                                        .max_w(ui_px(400.))
-                                                        .mr_8()
-                                                        .border_1()
-                                                        .border_color(cx.theme().border)
-                                                        .flex()
-                                                        .items_center()
-                                                        .gap_3()
-                                                        .p_3()
-                                                        .rounded_lg()
-                                                        .shadow_lg()
-                                                        .bg(cx.theme().popover)
-                                                        .text_color(cx.theme().popover_foreground)
-                                                        .text_sm()
-                                                        .line_height(relative(1.4))
-                                                        .child(
-                                                            div()
-                                                                .flex_1()
-                                                                .min_w_0()
-                                                                .child(message.clone()),
-                                                        )
-                                                        .child(
-                                                            Button::new("dismiss-notice")
-                                                                .ghost()
-                                                                .small()
-                                                                .icon(icon("xmark"))
-                                                                .tooltip(t("Dismiss"))
-                                                                .accessibility_label(t(t(
-                                                                    "Dismiss message",
-                                                                )))
-                                                                .on_click(cx.listener(
-                                                                    |this, _, _, cx| {
-                                                                        this.notice = None;
-                                                                        cx.notify();
-                                                                    },
-                                                                )),
-                                                        ),
-                                                )
+                                                page.child(self.status_notice(message, window, cx))
                                             }),
                                     ),
                             ),

@@ -63,6 +63,13 @@ pub struct Track {
 }
 
 impl Track {
+    pub fn clear_account_state(&mut self) {
+        self.library_add = None;
+        self.library_remove = None;
+        self.like_status = None;
+        self.set_video_id = None;
+    }
+
     pub fn song(
         id: impl Into<String>,
         title: impl Into<String>,

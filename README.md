@@ -4,7 +4,7 @@
 <h1 align="center">Cassette</h1>
 <p align="center">YouTube Music and your local collection in one native desktop player.</p>
 <p align="center">
-  <a href="https://github.com/ctrlcat0x/Cassette/releases/tag/v0.7.1-beta"><strong>Get v0.7.1 beta</strong></a>
+  <a href="https://github.com/ctrlcat0x/Cassette/releases/tag/v0.8.0-beta"><strong>Get v0.8 beta</strong></a>
   · <a href="https://github.com/ctrlcat0x/Cassette/releases">All releases</a>
   · <a href="https://github.com/ctrlcat0x/Cassette/issues">Report an issue</a>
 </p>
@@ -13,9 +13,9 @@
 
 | Platform | Package | Install |
 | --- | --- | --- |
-| Windows x64 | [Portable EXE](https://github.com/ctrlcat0x/Cassette/releases/download/v0.7.1-beta/cassette-windows-x64.exe) | Run the downloaded executable. |
-| macOS Apple Silicon | [DMG](https://github.com/ctrlcat0x/Cassette/releases/download/v0.7.1-beta/cassette-macos-arm64.dmg) | Open the disk image and drag Cassette into Applications. The build is ad-hoc signed. |
-| Linux x64 | [DEB](https://github.com/ctrlcat0x/Cassette/releases/download/v0.7.1-beta/cassette-linux-x64.deb) | Run `sudo apt install ./cassette-linux-x64.deb` on Ubuntu 24.04. |
+| Windows x64 | [Portable EXE](https://github.com/ctrlcat0x/Cassette/releases/download/v0.8.0-beta/cassette-windows-x64.exe) | Run the downloaded executable. |
+| macOS Apple Silicon | [DMG](https://github.com/ctrlcat0x/Cassette/releases/download/v0.8.0-beta/cassette-macos-arm64.dmg) | Open the disk image and drag Cassette into Applications. The build is ad-hoc signed. |
+| Linux x64 | [DEB](https://github.com/ctrlcat0x/Cassette/releases/download/v0.8.0-beta/cassette-linux-x64.deb) | Run `sudo apt install ./cassette-linux-x64.deb` on Ubuntu 24.04. |
 
 Cassette bundles yt-dlp and QuickJS-NG. The first launch extracts them into its private data directory. Browsing works as a guest. Connect a YouTube Music account from the profile menu to sync your library. Google sign-in on Windows uses the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
 
@@ -34,6 +34,13 @@ Cassette bundles yt-dlp and QuickJS-NG. The first launch extracts them into its 
 | Ctrl/⌘ + B | Toggle sidebar |
 | Space | Play or pause |
 | F11 | Open or close fullscreen playback |
+
+## What changed in v0.8
+
+- Scrolling stays with the open popup. Artwork blends smoothly as it loads, and status notices fade in briefly. Reduce motion keeps loading indicators still.
+- Cancelling a stream stops its decoder, and volume changes respect the crossfade. Offline mode uses local files and cached tracks.
+- Private sessions skip automatic caching. Local scans preserve edits made while scanning, and exported playlists omit account-specific state.
+- Library saves finish independently of the UI event queue.
 
 ## What changed in v0.7.1
 

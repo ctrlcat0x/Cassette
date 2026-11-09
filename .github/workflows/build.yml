@@ -93,12 +93,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Path dist/stage -Force | Out-Null
-          Copy-Item target/release/cassette.exe, LICENSE dist/stage
-          Copy-Item assets/fonts/*OFL.txt, assets/icons/HUGEICONS-LICENSE.txt dist/stage
-          Copy-Item assets/icons/LICENSE dist/stage/ICONS-LICENSE
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
           Copy-Item target/release/cassette.exe dist/cassette-windows-x64.exe
-          Compress-Archive -Path dist/stage/* -DestinationPath dist/cassette-windows-x64.zip
 
       - name: Package macOS
         if: runner.os == 'macOS'
@@ -197,7 +193,6 @@ jobs:
           name: cassette-${{ matrix.platform }}
           path: |
             dist/*.exe
-            dist/*.zip
             dist/*.dmg
             dist/*.deb
           if-no-files-found: error
@@ -233,11 +228,12 @@ jobs:
           cat > release-notes.md <<'EOF'
           Cassette is a native desktop music player built with Rust and GPUI.
 
-          ### Changes in v0.7.1 beta
-          - Keep visible artwork in Home shelves during rapid paging and direction changes.
-          - Recover the playback clock when buffering interrupts seeking. Update the current lyric and player title immediately.
-          - Make frequent navigation and hover feedback immediate. Ease fullscreen tint and backdrop changes.
-          - Add a Reduce motion control under Appearance. The app still follows the system preference by default.
+          ### Changes in v0.8 beta
+          - Keep scrolling inside open popups, blend arriving artwork over an opaque base, and fade status notices in briefly. Loading indicators stay static with Reduce motion.
+          - Stop cancelled audio reads promptly. Keep prefetched streams from bypassing offline mode, and keep the crossfade volume envelope during volume changes.
+          - Keep automatic caching out of private listening sessions, and preserve the offline index when a file cannot be removed.
+          - Scan local music without restoring tracks removed during the scan. Keep portable playlist files free of account-only fields.
+          - Keep shutdown saves independent of the UI event queue, and report startup verification failures through the process exit code.
 
           ### Features
           - Browse and search YouTube Music, with optional account library sync.

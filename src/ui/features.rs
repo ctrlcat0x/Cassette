@@ -516,6 +516,7 @@ impl Raag {
                     Button::new("rescan-local")
                         .ghost()
                         .label(t("Rescan folders"))
+                        .disabled(self.local_scan.is_some() || self.library.local_folders.is_empty())
                         .on_click(cx.listener(|this, _, _, cx| this.rescan_local(cx))),
                 )
             })
@@ -589,14 +590,7 @@ impl Raag {
         cx.notify();
     }
     fn rescan_local(&mut self, cx: &mut Context<Self>) {
-        let folders = self.library.local_folders.clone();
-        let sender = self.backend.events_sender.clone();
-        cx.background_spawn(async move {
-            let mut library = Library::default();
-            let count = library.import_paths(&folders);
-            let _ = sender.send(Event::Imported(Box::new(library), count));
-        })
-        .detach();
+        self.scan_local(self.library.local_folders.clone(), cx);
     }
     pub(super) fn discovery_controls(&self, cx: &mut Context<Self>) -> Div {
         div().flex().flex_col().gap_4()
@@ -621,9 +615,7 @@ impl Raag {
         let prompt = cx.prompt_for_new_path(&data_dir(), Some("cassette-listening.json"));
         let mut stats = self.library.stats.clone();
         for entry in stats.tracks.values_mut() {
-            entry.track.library_add = None;
-            entry.track.library_remove = None;
-            entry.track.set_video_id = None;
+            entry.track.clear_account_state();
         }
         cx.spawn(async move |owner, cx| {
             if let Ok(Ok(Some(path))) = prompt.await {

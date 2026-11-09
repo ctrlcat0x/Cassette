@@ -431,7 +431,7 @@ impl Raag {
                     .gap_2()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child(gpui_kit::component::spinner::Spinner::new().small())
+                    .child(loading_indicator(cx))
                     .child(t("Loading music…")),
             )
             .child(placeholders)
@@ -1221,14 +1221,14 @@ impl Raag {
                 SharedString::from(format!("hero-reveal-{}", track.id)),
                 Animation::new(Duration::from_millis(260)),
                 move |picture, _| {
-                    let phase = ease_out_quint()(
+                    let phase = crate::motion::ease_out()(
                         arrived
                             .map(|at| (at.elapsed().as_secs_f32() / 0.26).min(1.))
                             .unwrap_or(1.),
                     );
                     picture
                         .when_some(soft.clone(), |picture, path| {
-                            picture.child(div_placeholder(path.into(), 1. - phase, ui_px(0.)))
+                            picture.child(div_placeholder(path.into(), 1., ui_px(0.)))
                         })
                         .child(div().absolute().inset_0().opacity(phase).child(
                             crate::images::picture_top_keyed(

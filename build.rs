@@ -86,7 +86,6 @@ fn bundle_runtime(root: &Path) {
     collect_runtime(&runtime, &runtime, &mut files);
     files.push((root.join("LICENSE"), "licenses/Cassette-LICENSE".into()));
     for (source, name) in [
-        ("assets/fonts/inter-OFL.txt", "Inter-OFL.txt"),
         ("assets/fonts/manrope-OFL.txt", "Manrope-OFL.txt"),
         (
             "assets/fonts/NotoSansDevanagari-OFL.txt",

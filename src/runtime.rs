@@ -19,6 +19,14 @@ mod embedded {
         let root = crate::library::data_dir().join("runtime");
         fs::create_dir_all(&root)?;
         crate::auth::storage::restrict(&root)?;
+        // Verification commands can run alongside the player or one another.
+        let lock = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(root.join(".extract.lock"))?;
+        lock.lock()?;
         let destination = root.join(VERSION);
         let complete = destination.join(".complete");
         let completed = fs::metadata(&complete)

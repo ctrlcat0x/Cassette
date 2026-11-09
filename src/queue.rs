@@ -128,35 +128,28 @@ impl Queue {
         }
     }
 
-    /// Peek using the same order and repeat rules as the eventual transition.
-    pub fn next_track(&self, natural_end: bool) -> Option<&Track> {
+    fn next_position(&self, natural_end: bool) -> Option<usize> {
         let cursor = self.cursor?;
         if natural_end && self.repeat == Repeat::One {
-            return self.current();
+            return Some(cursor);
         }
-        let position = if cursor + 1 < self.order.len() {
-            cursor + 1
+        if cursor + 1 < self.order.len() {
+            Some(cursor + 1)
         } else if self.repeat == Repeat::All {
-            0
+            Some(0)
         } else {
-            return None;
-        };
+            None
+        }
+    }
+
+    /// Peek using the same order and repeat rules as the eventual transition.
+    pub fn next_track(&self, natural_end: bool) -> Option<&Track> {
         self.order
-            .get(position)
+            .get(self.next_position(natural_end)?)
             .and_then(|index| self.tracks.get(*index))
     }
     pub fn advance(&mut self, natural_end: bool) -> Option<&Track> {
-        let cursor = self.cursor?;
-        if natural_end && self.repeat == Repeat::One {
-            return self.current();
-        }
-        if cursor + 1 < self.order.len() {
-            self.cursor = Some(cursor + 1);
-        } else if self.repeat == Repeat::All {
-            self.cursor = Some(0);
-        } else {
-            return None;
-        }
+        self.cursor = Some(self.next_position(natural_end)?);
         self.current()
     }
 

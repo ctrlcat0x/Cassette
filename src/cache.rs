@@ -247,11 +247,25 @@ pub fn remove_audio(id: Option<&str>, temporary_only: bool) -> Result<()> {
         })
         .map(|(key, _)| key.clone())
         .collect();
+    let mut failure = None;
     for key in keys {
-        let _ = fs::remove_file(audio_path(&directory, &key));
-        index.entries.remove(&key);
+        match fs::remove_file(audio_path(&directory, &key)) {
+            Ok(()) => {
+                index.entries.remove(&key);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                index.entries.remove(&key);
+            }
+            Err(error) => {
+                failure.get_or_insert(error);
+            }
+        }
     }
-    write_json(&directory.join("index.json"), &index)
+    write_json(&directory.join("index.json"), &index)?;
+    if let Some(error) = failure {
+        return Err(error).context("Could not remove all selected offline audio");
+    }
+    Ok(())
 }
 pub fn store_audio_controlled(
     mut track: Track,

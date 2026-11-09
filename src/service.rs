@@ -33,8 +33,7 @@ pub enum Event {
     Lyrics(String, Result<raag::lyrics::Lyrics, String>),
     Artwork(HashMap<String, PathBuf>, HashMap<PathBuf, u8>),
     ArtworkColors(HashMap<String, raag::artwork::ArtworkColors>),
-    Saved(Result<(), String>),
-    Imported(Box<Library>, usize),
+    LocalScan(Vec<PathBuf>, Vec<Track>),
     Offline(Vec<Track>),
     CacheStatus(Option<String>),
     Radio(u64, Result<Vec<Track>, String>),
@@ -43,7 +42,7 @@ pub enum Event {
 }
 enum SaveJob {
     Save(Library),
-    Flush(Library, Sender<()>),
+    Flush(Library, Sender<Result<(), String>>),
 }
 pub struct CollectionLoad {
     pub epoch: u64,
@@ -75,6 +74,7 @@ pub struct Backend {
     pub events: Receiver<Event>,
     pub events_sender: SyncSender<Event>,
     saves: JobSender<SaveJob>,
+    pub save_errors: JobReceiver<String>,
     pub caches: JobSender<(Track, bool, String, String)>,
     pub lyrics: JobSender<(String, Track, raag::lyrics::Source, bool)>,
     pub radio: JobSender<(u64, Track)>,
@@ -89,8 +89,14 @@ impl Backend {
     }
     pub fn flush(&self, library: Library) {
         let (ack, completed) = mpsc::channel();
-        if self.saves.send(SaveJob::Flush(library, ack)).is_ok() {
-            let _ = completed.recv_timeout(Duration::from_secs(2));
+        if self.saves.send(SaveJob::Flush(library, ack)).is_err() {
+            eprintln!("Cassette library writer stopped");
+            return;
+        }
+        match completed.recv_timeout(Duration::from_secs(2)) {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => eprintln!("Cassette could not save the library: {error}"),
+            Err(error) => eprintln!("Cassette could not finish saving the library: {error}"),
         }
     }
     pub fn new(auth: SessionAccess) -> Self {
@@ -110,11 +116,16 @@ impl Backend {
                 return;
             };
             let mut cached: HashMap<String, (Instant, Vec<String>)> = HashMap::new();
+            let mut cache_generation = None;
             while let Ok((revision, query)) = suggestion_jobs.recv() {
                 if raag::cache::offline_only() {
                     continue;
                 }
                 let snapshot = suggestion_auth.snapshot();
+                if cache_generation != Some(snapshot.generation) {
+                    cached.clear();
+                    cache_generation = Some(snapshot.generation);
+                }
                 catalog.set_session(snapshot.session);
                 cached.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(300));
                 let results = if let Some((_, results)) = cached.get(query.trim()) {
@@ -423,7 +434,7 @@ impl Backend {
             }
         });
         let (saves, save_jobs) = jobs::channel::<SaveJob>(1);
-        let saved = events.clone();
+        let (save_errors, save_failures) = jobs::channel(1);
         thread::spawn(move || {
             while let Ok(mut job) = save_jobs.recv() {
                 // Coalesce slider/playlist bursts in a bounded window. A flush
@@ -447,9 +458,10 @@ impl Backend {
                     .save(&data_dir().join("library.json"))
                     .map_err(|e| format!("{e:#}"));
                 if let Some(acknowledgment) = acknowledgment {
-                    let _ = acknowledgment.send(());
+                    let _ = acknowledgment.send(result);
+                } else if let Err(error) = result {
+                    let _ = save_errors.send(error);
                 }
-                let _ = saved.send(Event::Saved(result));
             }
         });
         let (caches, cache_jobs) = jobs::channel::<(Track, bool, String, String)>(32);
@@ -473,6 +485,7 @@ impl Backend {
             events: results,
             events_sender: events,
             saves,
+            save_errors: save_failures,
             caches,
             lyrics,
             radio,

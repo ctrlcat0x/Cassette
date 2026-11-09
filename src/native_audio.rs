@@ -815,6 +815,16 @@ struct HttpSource {
     policy: &'static crate::request_policy::RequestPolicy,
 }
 impl HttpSource {
+    fn check_network(cancelled: &AtomicBool) -> io::Result<()> {
+        if cancelled.load(Ordering::Acquire) {
+            return Err(io::Error::other("Audio request cancelled"));
+        }
+        if crate::cache::offline_only() {
+            return Err(io::Error::other("Streaming is unavailable in offline mode"));
+        }
+        Ok(())
+    }
+
     fn new(source: &AudioSource, cancelled: Arc<AtomicBool>) -> Result<Self> {
         let mut headers = reqwest::header::HeaderMap::new();
         for field in &source.headers {
@@ -856,19 +866,9 @@ impl HttpSource {
         } else {
             HTTP_CHUNK_BYTES
         };
-        if self.cancelled.load(Ordering::Acquire) {
-            return Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "Audio request cancelled",
-            ));
-        }
+        Self::check_network(&self.cancelled)?;
         self.policy.before().map_err(io::Error::other)?;
-        if self.cancelled.load(Ordering::Acquire) {
-            return Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "Audio request cancelled",
-            ));
-        }
+        Self::check_network(&self.cancelled)?;
         let mut response = self
             .client
             .get(&self.url)
@@ -973,21 +973,14 @@ impl Read for HttpSource {
             return Ok(0);
         }
         if self.cancelled.load(Ordering::Acquire) {
-            return Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "Audio request cancelled",
-            ));
+            // Symphonia retries Interrupted. Cancellation is permanent.
+            return Err(io::Error::other("Audio request cancelled"));
         }
         if let Some((file, response, cached)) = &mut self.fallback {
             let target = self.position.saturating_add(output.len() as u64);
             let mut buffer = [0u8; 32 * 1024];
             while *cached < target && self.length.is_none_or(|length| *cached < length) {
-                if self.cancelled.load(Ordering::Acquire) {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Interrupted,
-                        "Audio request cancelled",
-                    ));
-                }
+                Self::check_network(&self.cancelled)?;
                 let count = response.read(&mut buffer)?;
                 if count == 0 {
                     if self.length.is_some_and(|length| *cached < length) {

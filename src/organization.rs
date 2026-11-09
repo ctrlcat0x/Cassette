@@ -134,34 +134,36 @@ impl Library {
             let Some(rule) = &playlist.smart else {
                 continue;
             };
-            let candidates: Vec<&Track> = match rule.source {
-                1 => self.liked.iter().chain(liked).collect(),
-                2 => self.local.iter().collect(),
-                3 => self.history.iter().chain(history).collect(),
-                _ => self
-                    .liked
-                    .iter()
-                    .chain(&self.local)
-                    .chain(&self.history)
-                    .chain(saved)
-                    .chain(liked)
-                    .chain(history)
-                    .collect(),
+            let sources: &[&[Track]] = match rule.source {
+                1 => &[&self.liked, liked],
+                2 => &[&self.local],
+                3 => &[&self.history, history],
+                _ => &[
+                    &self.liked,
+                    &self.local,
+                    &self.history,
+                    saved,
+                    liked,
+                    history,
+                ],
             };
+            let artist = rule.artist.to_lowercase();
+            let album = rule.album.to_lowercase();
+            let query = rule.query.to_lowercase();
             let mut seen = HashSet::new();
-            playlist.tracks = candidates
-                .into_iter()
+            playlist.tracks = sources
+                .iter()
+                .flat_map(|tracks| tracks.iter())
                 .filter(|t| {
                     t.playable()
-                        && seen.insert(t.id.clone())
+                        && seen.insert(t.id.as_str())
                         && (!rule.exclude_explicit || t.explicit != Some(true))
-                        && t.artist
-                            .to_lowercase()
-                            .contains(&rule.artist.to_lowercase())
-                        && t.album.to_lowercase().contains(&rule.album.to_lowercase())
-                        && format!("{} {} {}", t.title, t.artist, t.album)
-                            .to_lowercase()
-                            .contains(&rule.query.to_lowercase())
+                        && (artist.is_empty() || t.artist.to_lowercase().contains(&artist))
+                        && (album.is_empty() || t.album.to_lowercase().contains(&album))
+                        && (query.is_empty()
+                            || format!("{} {} {}", t.title, t.artist, t.album)
+                                .to_lowercase()
+                                .contains(&query))
                         && self
                             .stats
                             .tracks

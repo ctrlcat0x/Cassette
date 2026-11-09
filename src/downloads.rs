@@ -36,7 +36,7 @@ impl Downloads {
             (state.bytes, state.pinned) = raag::cache::audio_usage();
             let _ = updates.send(state.clone());
             while let Ok((id, job)) = requests.recv() {
-                if id != generation.load(Ordering::Acquire) {
+                if id != generation.load(Ordering::Acquire) && matches!(&job, Job::Tracks(..)) {
                     continue;
                 }
                 state.error = None;

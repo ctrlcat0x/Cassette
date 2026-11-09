@@ -149,21 +149,24 @@ impl Player {
                         source_retried = false;
                         wanted_prefetch = None;
                         fading = None;
+                        let next = prepared.take().filter(|ready| {
+                            ready.track_id == track.id
+                                && (!crate::cache::offline_only()
+                                    || !ready.source.url.starts_with("https://"))
+                        });
+                        let next =
+                            next.and_then(|mut ready| ready.drain_preparation().then_some(ready));
                         if settings.crossfade > 0.
-                            && prepared.as_ref().is_some_and(|p| {
-                                p.track_id == track.id && p.engine.loaded.load(Ordering::Acquire)
-                            })
+                            && next
+                                .as_ref()
+                                .is_some_and(|ready| ready.engine.loaded.load(Ordering::Acquire))
                         {
                             fading = session.take().map(|old| (old, Instant::now()));
                         } else {
                             session = None;
                         }
                         volume = level;
-                        if prepared.as_mut().is_some_and(|ready| {
-                            ready.track_id == track.id && ready.drain_preparation()
-                        }) {
-                            let mut ready = prepared.take().unwrap();
-                            ready.drain_preparation();
+                        if let Some(mut ready) = next {
                             ready.engine.generation = id;
                             configure(&mut ready.engine, &settings);
                             let _ = events.send(PlaybackEvent {
@@ -195,7 +198,6 @@ impl Player {
                             let _ = ready.engine.send(AudioCommand::Pause(false));
                             session = Some(ready);
                         } else {
-                            prepared = None;
                             let sender = resolved.clone();
                             let ytdlp = ytdlp.clone();
                             let cookies = cookies.clone();
@@ -283,7 +285,9 @@ impl Player {
                                 let _ = ready.engine.send(AudioCommand::Volume(volume));
                             }
                         }
-                        if let Some(ready) = &mut session {
+                        if let Some(ready) = &mut session
+                            && !(fading.is_some() && matches!(command, PlayerCommand::Volume(_)))
+                        {
                             let message = match command {
                                 PlayerCommand::Pause(paused) => AudioCommand::Pause(paused),
                                 PlayerCommand::Seek(seconds) => AudioCommand::Seek(seconds),
@@ -308,6 +312,11 @@ impl Player {
                         continue;
                     }
                     let result = source.and_then(|source| {
+                        if crate::cache::offline_only() && source.url.starts_with("https://") {
+                            bail!(
+                                "This song is not downloaded. Turn off offline mode to stream it."
+                            );
+                        }
                         PreparedAudio::load(
                             track_id,
                             source,
@@ -395,11 +404,15 @@ impl Player {
                             if limited {
                                 source_policy(&ready.source).pause(Duration::from_secs(60));
                             }
-                            forget_source(&ready.track_id);
+                            let offline = crate::cache::offline_only();
+                            if !offline {
+                                forget_source(&ready.track_id);
+                            }
                             if !ready.loaded_forwarded
                                 && !source_retried
                                 && ready.source.url.starts_with("https://")
                                 && !limited
+                                && !offline
                                 && (ready.source.quality.source == "JioSaavn"
                                     || matches!(&event.event, PlayerEvent::Error(message) if message.contains("403") || message.contains("410")))
                             {
@@ -780,6 +793,9 @@ pub fn resolve_with_quality(
         if generation.load(Ordering::Acquire) != id {
             break Err(anyhow::anyhow!("Playback request cancelled"));
         }
+        if crate::cache::offline_only() {
+            break Err(anyhow::anyhow!("Streaming is unavailable in offline mode"));
+        }
         if Instant::now() >= deadline {
             break Err(anyhow::anyhow!(
                 "Audio resolution took too long. Retry playback."
@@ -820,7 +836,7 @@ pub fn resolve_with_quality(
             break Err(error);
         }
     };
-    // Stop the losing extractor, too. Its process loop checks every 40 ms;
+    // Stop the losing extractor, too. Its process loop checks every 20 ms;
     // blocking HTTP remains bounded by its timeout.
     cancel.store(id.wrapping_add(1), Ordering::Release);
     let source = result?;
@@ -956,6 +972,9 @@ pub(crate) fn stream_client() -> Result<reqwest::blocking::Client> {
 
 fn validate_stream(source: &AudioSource, deadline: Instant) -> Result<()> {
     source_policy(source).before()?;
+    if crate::cache::offline_only() {
+        bail!("Streaming is unavailable in offline mode");
+    }
     let client = stream_client()?;
     let remaining = deadline.saturating_duration_since(Instant::now());
     if remaining.is_zero() {
@@ -1112,25 +1131,28 @@ fn extract_source(
         let mut bytes = Vec::new();
         stderr.take(128_001).read_to_end(&mut bytes).map(|_| bytes)
     });
+    let stop = |child: &mut std::process::Child| {
+        if child.kill().is_ok() {
+            let _ = child.wait();
+        } else {
+            let _ = child.try_wait();
+        }
+    };
     let status = loop {
         if generation.load(Ordering::Acquire) != id || Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = output.join();
-            let _ = diagnostic.join();
+            stop(&mut child);
             if generation.load(Ordering::Acquire) != id {
                 bail!("Playback request cancelled");
             }
             bail!("YouTube took too long to respond. Check your connection and retry.");
         }
+        // A descendant can inherit the pipes. Only join readers once they
+        // have finished, so inherited handles cannot defeat cancellation.
         match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => thread::sleep(Duration::from_millis(20)),
+            Ok(Some(status)) if output.is_finished() && diagnostic.is_finished() => break status,
+            Ok(_) => thread::sleep(Duration::from_millis(20)),
             Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = output.join();
-                let _ = diagnostic.join();
+                stop(&mut child);
                 bail!("Extractor failed: {error}");
             }
         }

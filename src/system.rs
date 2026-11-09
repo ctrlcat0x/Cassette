@@ -365,7 +365,7 @@ impl Instance {
             .write(true)
             .open(directory.join("cassette.lock"))?;
         let address_path = directory.join("cassette-instance.json");
-        let link = std::env::args().find_map(|arg| raag::links::Link::parse(&arg).ok());
+        let link = std::env::args_os().find_map(|arg| raag::links::Link::parse(arg.to_str()?).ok());
         if lock.try_lock().is_err() {
             if background && !quit {
                 return Ok(None);

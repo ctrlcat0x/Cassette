@@ -1,4 +1,5 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+use anyhow::{Context as _, Result};
 use gpui_kit::*;
 extern crate gpui_kit as gpui;
 mod account_sync;
@@ -26,45 +27,35 @@ fn main() {
     {
         std::process::exit(login_helper::main());
     }
+    if let Err(error) = run() {
+        eprintln!("Cassette: {error:#}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     let background = std::env::args_os().any(|arg| arg == "--background");
     let quit = std::env::args_os().any(|arg| arg == "--quit");
-    if let Err(error) = raag::auth::storage::prepare_data_dir() {
-        eprintln!("Cassette could not protect local data: {error}");
-        return;
-    }
-    if let Some(path) = std::env::args()
-        .skip_while(|arg| arg != "--verify-audio")
-        .nth(1)
-    {
-        if let Err(error) = raag::playback::verify_native(&path) {
-            eprintln!("{error:#}");
-            std::process::exit(1);
-        }
-        return;
+    raag::auth::storage::prepare_data_dir().context("Could not protect local data")?;
+    let mut args = std::env::args_os();
+    if args.any(|arg| arg == "--verify-audio") {
+        let path = args
+            .next()
+            .context("--verify-audio requires a track path or song link")?;
+        return raag::playback::verify_native(
+            path.to_str().context("Invalid audio path or song link")?,
+        );
     }
     if std::env::args_os().any(|arg| arg == "--verify-runtime") {
-        if let Err(error) = raag::runtime::verify() {
-            eprintln!("{error:#}");
-            std::process::exit(1);
-        }
-        return;
+        return raag::runtime::verify();
     }
-    let instance = match system::Instance::acquire(background, quit) {
-        Ok(Some(instance)) => instance,
-        Ok(None) => return,
-        Err(error) => {
-            eprintln!("Cassette could not start: {error:#}");
-            return;
-        }
+    let Some(instance) = system::Instance::acquire(background, quit).context("Could not start")?
+    else {
+        return Ok(());
     };
-    if let Err(error) = raag::runtime::prepare() {
-        eprintln!("Cassette could not prepare bundled playback tools: {error:#}");
-        return;
-    }
-    if let Err(error) = raag::auth::storage::clear_abandoned_exports() {
-        eprintln!("Cassette could not clear old playback credentials: {error}");
-        return;
-    }
+    raag::runtime::prepare().context("Could not prepare bundled playback tools")?;
+    raag::auth::storage::clear_abandoned_exports()
+        .context("Could not clear old playback credentials")?;
     #[cfg(feature = "allocation-profile")]
     raag::diagnostics::start_reporter();
     let links = instance.link_sender();
@@ -120,4 +111,5 @@ fn main() {
             cx.activate(true);
         }
     });
+    Ok(())
 }

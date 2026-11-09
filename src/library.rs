@@ -3,6 +3,7 @@ use anyhow::{Context, Result, bail};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -246,7 +247,12 @@ impl Library {
             .iter()
             .find(|p| p.id == id)
             .context("Playlist no longer exists")?;
-        fs::write(path, serde_json::to_vec_pretty(playlist)?)?;
+        let mut portable = playlist.clone();
+        portable
+            .tracks
+            .iter_mut()
+            .for_each(Track::clear_account_state);
+        fs::write(path, serde_json::to_vec_pretty(&portable)?)?;
         Ok(())
     }
     pub fn import_playlist(&mut self, path: &Path) -> Result<String> {
@@ -254,11 +260,15 @@ impl Library {
         if file.metadata()?.len() > 10_000_000 {
             bail!("Playlist files must be smaller than 10 MB.");
         }
-        let mut playlist: Playlist =
-            serde_json::from_reader(file).context("This is not a Cassette playlist file")?;
+        let mut playlist: Playlist = crate::resource::json(file, 10_000_000)
+            .context("This is not a Cassette playlist file")?;
         if playlist.tracks.len() > 10_000 {
             bail!("A playlist can contain at most 10,000 songs.");
         }
+        playlist
+            .tracks
+            .iter_mut()
+            .for_each(Track::clear_account_state);
         let id = self.create_playlist(&playlist.name)?;
         playlist.id = id.clone();
         *self
@@ -274,26 +284,27 @@ impl Library {
                 self.local_folders.push(path.clone());
             }
         }
-        self.import_walk(paths)
-    }
-    fn import_walk(&mut self, paths: &[PathBuf]) -> usize {
         let before = self.local.len();
-        for path in paths {
+        let mut known: HashSet<_> = self.local.iter().map(|track| track.id.clone()).collect();
+        let mut pending: Vec<_> = paths.iter().rev().cloned().collect();
+        while let Some(path) = pending.pop() {
             if path.is_dir() {
                 // A chosen folder is scanned once; symlink directories are not followed.
-                if let Ok(entries) = fs::read_dir(path) {
-                    let children: Vec<_> = entries
-                        .flatten()
-                        .filter(|entry| entry.file_type().is_ok_and(|t| !t.is_symlink()))
-                        .map(|entry| entry.path())
-                        .collect();
-                    self.import_walk(&children);
+                if let Ok(entries) = fs::read_dir(&path) {
+                    let from = pending.len();
+                    pending.extend(
+                        entries
+                            .flatten()
+                            .filter(|entry| entry.file_type().is_ok_and(|t| !t.is_symlink()))
+                            .map(|entry| entry.path()),
+                    );
+                    pending[from..].reverse();
                 }
-            } else if is_audio(path) && path.is_file() {
-                let track = Track::local(path);
-                if !self.local.iter().any(|t| t.id == track.id) {
-                    self.local.push(track);
-                }
+            } else if is_audio(&path)
+                && path.is_file()
+                && known.insert(path.to_string_lossy().into_owned())
+            {
+                self.local.push(Track::local(&path));
             }
         }
         self.local.len() - before

@@ -1095,6 +1095,8 @@ pub struct LyricWord {
 }
 
 pub fn parse_lrc(lrc: &str) -> Vec<LyricLine> {
+    const MAX_LINES: usize = 2_000;
+    let mut remaining_bytes = 8 * 1024 * 1024;
     let mut lines = Vec::new();
     for line in lrc.lines() {
         let mut tail = line;
@@ -1111,19 +1113,36 @@ pub fn parse_lrc(lrc: &str) -> Vec<LyricLine> {
                 break;
             };
             let time = minutes * 60. + seconds;
-            if time.is_finite() && time >= 0. {
+            if time.is_finite() && time >= 0. && times.len() < MAX_LINES {
                 times.push(time);
             }
             tail = rest;
         }
+        if times.is_empty() {
+            continue;
+        }
         let (text, words) = crate::lyrics::enhanced_words(tail);
+        // Several timestamps can repeat the same text and word timings.
+        // Bound the expanded data as well as the size of the source file.
+        let line_bytes = text.len()
+            + words
+                .iter()
+                .map(|word| word.text.len() + std::mem::size_of::<LyricWord>())
+                .sum::<usize>();
         for seconds in times {
+            if lines.len() == MAX_LINES || line_bytes > remaining_bytes {
+                break;
+            }
+            remaining_bytes -= line_bytes;
             lines.push(LyricLine {
                 seconds: Some(seconds),
                 text: text.clone(),
                 words: words.clone(),
                 ..Default::default()
             });
+        }
+        if lines.len() == MAX_LINES {
+            break;
         }
     }
     lines.sort_by(|a, b| {
