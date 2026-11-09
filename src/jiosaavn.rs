@@ -5,8 +5,6 @@ use crate::{
     playback::{AudioSource, StreamQuality},
 };
 use anyhow::{Context, Result, bail};
-use base64::Engine;
-use des::cipher::{BlockDecrypt, KeyInit};
 use serde_json::Value;
 use std::{
     collections::HashMap,
@@ -117,6 +115,7 @@ pub(crate) fn resolve(
     }
     let (url, bitrate) = media_url(&candidate.encrypted, candidate.supports_320, quality)?;
     Ok(Some(AudioSource {
+        duration: candidate.track.duration as f64,
         url,
         headers: vec![],
         user_agent: "Mozilla/5.0".into(),
@@ -144,16 +143,17 @@ fn get(call: &str, params: &[(&str, &str)]) -> Result<Value> {
         })
         .as_ref()
         .map_err(|_| anyhow::anyhow!("JioSaavn connection unavailable"))?;
-    let response = http
-        .get("https://www.jiosaavn.com/api.php")
-        .query(&[
-            ("__call", call),
-            ("_format", "json"),
-            ("_marker", "0"),
-            ("api_version", "4"),
-            ("ctx", "android"),
-        ])
-        .query(params)
+    let mut fields = vec![("__call", call), ("_format", "json")];
+    if call != "song.generateAuthToken" {
+        fields.extend([("_marker", "0"), ("api_version", "4"), ("ctx", "web6dot0")]);
+    }
+    fields.extend_from_slice(params);
+    let request = if call == "song.generateAuthToken" {
+        http.post("https://www.jiosaavn.com/api.php").form(&fields)
+    } else {
+        http.get("https://www.jiosaavn.com/api.php").query(&fields)
+    };
+    let response = request
         .header("Accept", "application/json")
         .header("Cookie", "explicit_content=1")
         .send()
@@ -247,28 +247,22 @@ fn same_recording(wanted: &Track, found: &Track) -> bool {
 }
 
 fn media_url(encrypted: &str, supports_320: bool, quality: Quality) -> Result<(String, u32)> {
-    let mut bytes = base64::engine::general_purpose::STANDARD
-        .decode(encrypted)
-        .context("Invalid JioSaavn media data")?;
-    if bytes.is_empty() || bytes.len() > 4096 || bytes.len() % 8 != 0 {
-        bail!("Invalid JioSaavn media data");
-    }
-    let cipher =
-        des::Des::new_from_slice(b"38346591").map_err(|_| anyhow::anyhow!("Invalid media key"))?;
-    for block in bytes.as_chunks_mut::<8>().0 {
-        cipher.decrypt_block(block.into());
-    }
-    let padding = *bytes.last().context("Empty media data")? as usize;
-    if !(1..=8).contains(&padding)
-        || !bytes[bytes.len() - padding..]
-            .iter()
-            .all(|b| *b as usize == padding)
-    {
-        bail!("Invalid JioSaavn media padding");
-    }
-    bytes.truncate(bytes.len() - padding);
-    let raw = String::from_utf8(bytes).context("Invalid JioSaavn media address")?;
-    let mut url = reqwest::Url::parse(raw.trim()).context("Invalid JioSaavn media address")?;
+    // Use the provider's format endpoint, as yt-dlp's maintained extractor does.
+    // Rewriting a decrypted CDN filename can select a nonexistent rendition.
+    let bitrate = match quality {
+        Quality::DataSaver => 64,
+        Quality::Standard => 128,
+        Quality::Best if supports_320 => 320,
+        Quality::Best => 128,
+    };
+    let response = get(
+        "song.generateAuthToken",
+        &[("url", encrypted), ("bitrate", &bitrate.to_string())],
+    )?;
+    let raw = response["auth_url"]
+        .as_str()
+        .context("JioSaavn did not return playable audio")?;
+    let mut url = reqwest::Url::parse(raw).context("Invalid JioSaavn media address")?;
     if !matches!(url.scheme(), "http" | "https")
         || !url.host_str().is_some_and(|h| h.ends_with(".saavncdn.com"))
         || !url.username().is_empty()
@@ -278,25 +272,6 @@ fn media_url(encrypted: &str, supports_320: bool, quality: Quality) -> Result<(S
         bail!("Unsupported JioSaavn media host");
     }
     let _ = url.set_scheme("https");
-    let (stem, suffix) = url
-        .path()
-        .rsplit_once('_')
-        .context("Unsupported JioSaavn media format")?;
-    let (offered, extension) = suffix
-        .split_once('.')
-        .context("Unsupported JioSaavn media format")?;
-    let offered: u32 = offered.parse().context("Unsupported JioSaavn bitrate")?;
-    if ![12, 48, 96, 160, 320].contains(&offered) || !["mp4", "aac"].contains(&extension) {
-        bail!("Unsupported JioSaavn media format");
-    }
-    let max = if supports_320 { 320 } else { offered };
-    let bitrate = max.min(match quality {
-        Quality::DataSaver => 48,
-        Quality::Standard => 160,
-        Quality::Best => 320,
-    });
-    let path = format!("{stem}_{bitrate}.{extension}");
-    url.set_path(&path);
     Ok((url.into(), bitrate))
 }
 

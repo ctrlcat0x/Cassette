@@ -254,17 +254,12 @@ impl Raag {
                                 .child(entry.track.title.clone()),
                         );
                 } else {
-                    button = button.w(px(extent + 10.)).flex_col().items_start().when(
-                        mode == PlaylistView::CompactGrid,
-                        |button| {
-                            button.child(
-                                div()
-                                    .w_full()
-                                    .text_xs()
-                                    .truncate()
-                                    .child(entry.track.title.clone()),
-                            )
-                        },
+                    button = button.w(px(extent + 10.)).flex_col().items_start().child(
+                        div()
+                            .w_full()
+                            .text_xs()
+                            .truncate()
+                            .child(entry.track.title.clone()),
                     );
                 }
                 row = row.child(button);
@@ -585,10 +580,6 @@ impl Raag {
             section,
             AccountSection::Playlists | AccountSection::Albums | AccountSection::Artists
         );
-        body = body.child(self.collection_tools(cx));
-        if section == AccountSection::Playlists {
-            body = body.child(self.organization_controls(cx));
-        }
         let mut entries = if section == AccountSection::Playlists {
             self.playlist_entries(usize::MAX)
         } else if gallery {
@@ -642,6 +633,12 @@ impl Raag {
         } else {
             self.visible.len()
         };
+        if count > 0 || !self.browse_filter.is_empty() || self.selecting {
+            body = body.child(self.collection_tools(cx));
+        }
+        if section == AccountSection::Playlists {
+            body = body.child(self.organization_controls(cx));
+        }
         body = body.child(
             div()
                 .flex()
@@ -706,6 +703,8 @@ impl Raag {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(if loading {
                                 t("Finding your music…")
+                            } else if !self.browse_filter.is_empty() {
+                                t("No results found")
                             } else {
                                 t("A little room for your favourites")
                             }),
@@ -717,6 +716,8 @@ impl Raag {
                             .text_center()
                             .child(if loading {
                                 t("Your collection will appear here.")
+                            } else if !self.browse_filter.is_empty() {
+                                t("Try another song, artist or album.")
                             } else if section == AccountSection::Playlists {
                                 t("Create a playlist or import one from the menu above.")
                             } else {

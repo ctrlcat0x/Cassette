@@ -38,7 +38,7 @@ impl Raag {
         self.library.language = code.into();
         raag::i18n::set_language(code);
         gpui_kit::component::set_locale(code);
-        if let Some(system) = &self.system {
+        if let Some(system) = &mut self.system {
             system.refresh_language();
         }
         for (input, placeholder) in [

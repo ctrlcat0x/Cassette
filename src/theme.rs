@@ -99,16 +99,8 @@ pub fn apply(
     } else {
         palette.color("primary")
     };
-    let primary = if customizable {
-        raag::artwork::readable_accent(primary, palette.color("background"))
-    } else {
-        primary
-    };
-    let on_primary = if customizable {
-        raag::artwork::on_accent(primary)
-    } else {
-        palette.color("primary-foreground")
-    };
+    let primary = raag::artwork::readable_accent(primary, palette.color("background"));
+    let on_primary = raag::artwork::on_accent(primary);
     Theme::change(
         if palette.light {
             ThemeMode::Light
@@ -157,13 +149,13 @@ pub fn apply(
         c.primary = rgb(primary).into();
         c.primary_foreground = rgb(on_primary).into();
         c.ring = c.primary;
-        c.primary_hover = c.primary;
-        c.primary_active = c.primary;
+        c.primary_hover = c.primary.blend(c.foreground.opacity(0.08));
+        c.primary_active = c.primary.blend(c.foreground.opacity(0.16));
         c.progress_bar = c.primary;
         c.button_primary = c.primary;
         c.button_primary_foreground = c.primary_foreground;
-        c.button_primary_hover = c.primary;
-        c.button_primary_active = c.primary;
+        c.button_primary_hover = c.primary_hover;
+        c.button_primary_active = c.primary_active;
         c.button = color("card");
         c.button_foreground = color("card-foreground");
         c.button_hover = c.muted;

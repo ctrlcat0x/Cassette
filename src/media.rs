@@ -17,6 +17,8 @@ pub struct Media {
     pub events: Receiver<MediaControlEvent>,
     previous: Option<(String, bool, u64, Option<String>)>,
     updated: Instant,
+    position: f64,
+    volume: f64,
 }
 struct Update {
     track: Option<raag::Track>,
@@ -90,6 +92,8 @@ impl Media {
             events,
             previous: None,
             updated: Instant::now(),
+            position: 0.,
+            volume: 100.,
         })
     }
     pub fn update(
@@ -108,9 +112,16 @@ impl Media {
             artwork.clone(),
         );
         let changed = self.previous.as_ref() != Some(&key);
-        if !changed && self.updated.elapsed() < Duration::from_secs(1) {
-            return;
+        if !changed && self.volume == volume {
+            if !playing && self.position == position {
+                return;
+            }
+            if playing && self.updated.elapsed() < Duration::from_secs(1) {
+                return;
+            }
         }
+        self.position = position;
+        self.volume = volume;
         self.updated = Instant::now();
         let update = Update {
             track: track.cloned(),
@@ -146,13 +157,13 @@ fn apply(controls: &mut MediaControls, update: &Update, metadata_changed: bool) 
             title: track.map(|t| t.title.as_str()),
             artist: track.map(|t| t.artist.as_str()),
             album: track.map(|t| t.album.as_str()),
-            duration: Some(Duration::from_secs_f64(update.duration.max(0.))),
+            duration: Duration::try_from_secs_f64(update.duration).ok(),
             cover_url: artwork.as_deref(),
         });
     }
-    let progress = Some(MediaPosition(Duration::from_secs_f64(
-        update.position.max(0.),
-    )));
+    let progress = Duration::try_from_secs_f64(update.position)
+        .ok()
+        .map(MediaPosition);
     let _ = controls.set_playback(if track.is_none() {
         MediaPlayback::Stopped
     } else if update.playing {

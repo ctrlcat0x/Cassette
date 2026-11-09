@@ -2,6 +2,16 @@ use super::*;
 use gpui_kit::component::menu::DropdownMenu;
 
 impl Raag {
+    pub(super) fn immersive_button(button: Button, cx: &App) -> Button {
+        use gpui_kit::component::button::ButtonCustomVariant;
+        let white: Hsla = rgb(0xffffff).into();
+        button.custom(
+            ButtonCustomVariant::new(cx)
+                .foreground(white)
+                .hover(white.opacity(0.12))
+                .active(white.opacity(0.20)),
+        )
+    }
     pub(super) fn immersive_palette(&self) -> (u32, u32) {
         let color = |track: &Track| {
             self.artwork_colors
@@ -190,6 +200,7 @@ impl Raag {
         let show_artwork = self.library.immersive_artwork;
         let menu = Button::new("immersive-menu")
             .ghost()
+            .map(|button| Self::immersive_button(button, cx))
             .icon(icon("nav-arrow-down"))
             .text_color(white.opacity(0.75))
             .tooltip(t("Player options"))
@@ -223,6 +234,14 @@ impl Raag {
                 cx.listener(|this, _: &ResetZoom, window, cx| this.set_ui_scale(1., window, cx)),
             )
             .on_action(cx.listener(|this, _: &TogglePlayback, _, cx| this.toggle_playback(cx)))
+            .on_action(cx.listener(|this, _: &QuitApp, _, cx| {
+                this.flush();
+                cx.quit();
+            }))
+            .on_action(cx.listener(|this, _: &OpenSettings, window, cx| {
+                this.exit_immersive(window, cx);
+                this.navigate(Screen::Settings, cx);
+            }))
             .on_action(cx.listener(|this, _: &NextTrack, _, cx| this.next(false, cx)))
             .on_action(cx.listener(|this, _: &PreviousTrack, _, cx| this.previous(cx)))
             .on_action(
@@ -302,6 +321,7 @@ impl Raag {
             )
             .child(
                 self.like_button(track, "immersive-like", cx)
+                    .map(|button| Self::immersive_button(button, cx))
                     .text_color(rgb(0xffffff)),
             )
             .into_any_element()
@@ -317,7 +337,9 @@ impl Raag {
             .child(
                 Button::new("immersive-repeat")
                     .ghost()
+                    .map(|button| Self::immersive_button(button, cx))
                     .icon(icon("repeat"))
+                    .when(self.queue.repeat == Repeat::One, |button| button.label("1"))
                     .text_color(rgb(0xffffff))
                     .selected(self.queue.repeat != Repeat::Off)
                     .tooltip(t("Repeat"))
@@ -335,6 +357,7 @@ impl Raag {
             .child(
                 Button::new("immersive-shuffle")
                     .ghost()
+                    .map(|button| Self::immersive_button(button, cx))
                     .icon(icon("shuffle"))
                     .text_color(rgb(0xffffff))
                     .selected(self.queue.shuffle)
@@ -449,6 +472,7 @@ impl Raag {
                         .child(
                             Button::new("immersive-follow")
                                 .ghost()
+                                .map(|button| Self::immersive_button(button, cx))
                                 .small()
                                 .label(t("Follow song"))
                                 .text_color(rgb(0xffffff))

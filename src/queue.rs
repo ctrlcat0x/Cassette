@@ -71,6 +71,11 @@ impl Queue {
     pub fn ordered_len(&self) -> usize {
         self.order.len()
     }
+    pub fn set_duration(&mut self, id: &str, duration: u64) {
+        for track in self.tracks.iter_mut().filter(|track| track.id == id) {
+            track.duration = duration;
+        }
+    }
     pub fn track_at(&self, position: usize) -> Option<&Track> {
         self.order
             .get(position)

@@ -36,12 +36,7 @@ fn main() {
         "\"raag/app-icon.png\" => Some(include_bytes!({:?})),\n",
         root.join("assets/cassette-44.png").to_string_lossy()
     ));
-    println!("cargo:rerun-if-changed=assets/cassette-home.png");
-    generated.push_str(&format!(
-        "\"raag/cassette-home.png\" => Some(include_bytes!({:?})),\n",
-        root.join("assets/cassette-home.png").to_string_lossy()
-    ));
-    for folder in ["icons", "covers", "fonts"] {
+    for folder in ["icons", "covers"] {
         let directory = root.join("assets").join(folder);
         println!("cargo:rerun-if-changed={}", directory.display());
         if let Ok(entries) = fs::read_dir(directory) {
@@ -73,7 +68,7 @@ fn bundle_runtime(root: &Path) {
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let mut files = Vec::new();
     let windows = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
-    for name in ["yt-dlp", "deno"] {
+    for name in ["yt-dlp", "qjs"] {
         let filename = if windows {
             format!("{name}.exe")
         } else {
@@ -90,16 +85,32 @@ fn bundle_runtime(root: &Path) {
     );
     collect_runtime(&runtime, &runtime, &mut files);
     files.push((root.join("LICENSE"), "licenses/Cassette-LICENSE".into()));
+    for (source, name) in [
+        ("assets/fonts/inter-OFL.txt", "Inter-OFL.txt"),
+        ("assets/fonts/manrope-OFL.txt", "Manrope-OFL.txt"),
+        (
+            "assets/fonts/NotoSansDevanagari-OFL.txt",
+            "NotoSansDevanagari-OFL.txt",
+        ),
+        ("assets/icons/LICENSE", "Iconoir-LICENSE"),
+        (
+            "assets/icons/HUGEICONS-LICENSE.txt",
+            "Hugeicons-LICENSE.txt",
+        ),
+    ] {
+        files.push((root.join(source), format!("licenses/{name}")));
+    }
     files.retain(|(_, name)| {
         !name.starts_with("installer/") && !name.ends_with(".bat") && !name.ends_with(".ps1")
     });
     files.sort_by(|left, right| left.1.cmp(&right.1));
     files.dedup_by(|left, right| left.1 == right.1);
-    let payload = output.join("runtime.gz");
-    let mut compressed = flate2::write::GzEncoder::new(
-        fs::File::create(&payload).unwrap(),
-        flate2::Compression::default(),
-    );
+    let payload = output.join("runtime.zst");
+    let mut compressed =
+        zstd::stream::write::Encoder::new(fs::File::create(&payload).unwrap(), 15).unwrap();
+    // Keep first-launch decoder memory bounded independently of bundle size.
+    compressed.window_log(22).unwrap();
+    compressed.include_checksum(true).unwrap();
     let mut generated = String::from("pub const FILES: &[(&str, u64, [u8; 32])] = &[\n");
     let mut buffer = [0u8; 64 * 1024];
     for (path, name) in files {

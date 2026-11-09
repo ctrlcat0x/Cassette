@@ -65,8 +65,14 @@ fn read_index(directory: &Path) -> Result<AudioIndex> {
     if !path.exists() {
         return Ok(AudioIndex::default());
     }
-    serde_json::from_slice(&fs::read(path)?)
-        .context("Audio cache index is damaged; original files were kept")
+    let index: AudioIndex = crate::resource::json(fs::File::open(path)?, 32 * 1024 * 1024)
+        .context("Audio cache index is damaged; original files were kept")?;
+    if index.entries.iter().any(|(id, entry)| {
+        validate_video_id(id).is_err() || entry.track.id != *id || entry.bytes > MAX_TRACK_BYTES
+    }) {
+        bail!("Audio cache index is invalid; original files were kept");
+    }
+    Ok(index)
 }
 pub fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     fs::create_dir_all(path.parent().context("Missing cache directory")?)?;
@@ -137,13 +143,13 @@ fn prune_metadata(directory: &Path, budget: u64, current: &Path) -> Result<()> {
     }
     Ok(())
 }
-pub fn cached_audio(id: &str) -> Option<(PathBuf, StreamQuality)> {
+pub fn cached_audio(id: &str) -> Option<(PathBuf, StreamQuality, f64)> {
     validate_video_id(id).ok()?;
     let directory = audio_directory();
     let index = read_index(&directory).ok()?;
     let entry = index.entries.get(id)?;
     let path = audio_path(&directory, id);
-    (valid(entry, &path, now())).then(|| (path, entry.quality.clone()))
+    (valid(entry, &path, now())).then(|| (path, entry.quality.clone(), entry.track.duration as f64))
 }
 fn valid(entry: &CachedAudio, path: &Path, time: u64) -> bool {
     entry.expires.is_none_or(|expiry| expiry > time)
@@ -248,7 +254,7 @@ pub fn remove_audio(id: Option<&str>, temporary_only: bool) -> Result<()> {
     write_json(&directory.join("index.json"), &index)
 }
 pub fn store_audio_controlled(
-    track: Track,
+    mut track: Track,
     persistent: bool,
     pinned: bool,
     ytdlp: &str,
@@ -270,6 +276,9 @@ pub fn store_audio_controlled(
         && valid(entry, &audio_path(&directory, &track.id), now())
     {
         entry.last_used = now();
+        if track.duration == 0 {
+            track.duration = entry.track.duration;
+        }
         entry.track = track;
         entry.pinned |= pinned;
         if persistent || pinned {
@@ -364,6 +373,9 @@ pub fn store_audio_controlled(
         bail!("Offline storage is full. Remove a download or increase the storage limit.");
     }
     fs::rename(&staging, audio_path(&directory, &track.id))?;
+    if track.duration == 0 && source.duration.is_finite() && source.duration > 0. {
+        track.duration = source.duration.round() as u64;
+    }
     index.entries.insert(
         track.id.clone(),
         CachedAudio {

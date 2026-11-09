@@ -94,7 +94,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path dist/stage -Force | Out-Null
-          Copy-Item target/release/cassette.exe, LICENSE, README.md dist/stage
+          Copy-Item target/release/cassette.exe, LICENSE dist/stage
           Copy-Item assets/fonts/*OFL.txt, assets/icons/HUGEICONS-LICENSE.txt dist/stage
           Copy-Item assets/icons/LICENSE dist/stage/ICONS-LICENSE
           Copy-Item target/release/cassette.exe dist/cassette-windows-x64.exe
@@ -110,7 +110,7 @@ jobs:
           app=dist/stage/Cassette.app
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" dist/icon.iconset
           cp target/release/cassette "$app/Contents/MacOS/"
-          cp LICENSE README.md assets/fonts/*OFL.txt assets/icons/HUGEICONS-LICENSE.txt "$app/Contents/Resources/"
+          cp LICENSE assets/fonts/*OFL.txt assets/icons/HUGEICONS-LICENSE.txt "$app/Contents/Resources/"
           cp assets/icons/LICENSE "$app/Contents/Resources/ICONS-LICENSE"
           for size in 16 32 128 256 512; do
             sips -z "$size" "$size" assets/cassette.png --out "dist/icon.iconset/icon_${size}x${size}.png" >/dev/null
@@ -165,7 +165,7 @@ jobs:
           install -Dm644 packaging/cassette.desktop "$root/usr/share/applications/cassette.desktop"
           install -Dm644 assets/cassette-256.png "$root/usr/share/icons/hicolor/256x256/apps/cassette.png"
           install -Dm644 LICENSE "$root/usr/share/doc/cassette/copyright"
-          cp README.md assets/fonts/*OFL.txt assets/icons/HUGEICONS-LICENSE.txt "$root/usr/share/doc/cassette/"
+          cp assets/fonts/*OFL.txt assets/icons/HUGEICONS-LICENSE.txt "$root/usr/share/doc/cassette/"
           cp assets/icons/LICENSE "$root/usr/share/doc/cassette/ICONS-LICENSE"
           mkdir -p debian "$root/DEBIAN"
           cat > debian/control <<EOF
@@ -233,12 +233,12 @@ jobs:
           cat > release-notes.md <<'EOF'
           Cassette is a native desktop music player built with Rust and GPUI.
 
-          ### Changes in v0.6 beta
-          - Resolve JioSaavn first and use YouTube only when needed; disable extractor retries and unnecessary metadata requests.
-          - Share provider cooldowns across playback and downloads, use larger bounded audio ranges, and defer prefetch and automatic caching.
-          - Restore album artists from header metadata and show full collection descriptions in a keyboard-accessible modal.
-          - Simplify settings with spacing and subtle section backgrounds instead of repeated separator lines.
-          - Remove obsolete generated workspace files.
+          ### Changes in v0.7 beta
+          - Bundle a smaller JavaScript runtime and an updated yt-dlp. On Windows, use the upstream directory build to avoid unpacking Python on each play.
+          - Start matched JioSaavn playback from the first audio range. Use YouTube when the match or signed media fails.
+          - Reduce idle audio polling and keep playback updates separate from page and artwork rendering.
+          - Refresh navigation, discovery, library, settings and fullscreen playback. Add direct access to local files and offline music.
+          - Add Windows taskbar playback controls and fix a crash when hovering artwork.
 
           ### Features
           - Browse and search YouTube Music, with optional account library sync.
@@ -251,9 +251,9 @@ jobs:
           - **Linux x64:** `cassette-linux-x64.deb` — built on Ubuntu 24.04; install with `sudo apt install ./cassette-linux-x64.deb`.
 
           ### Before you start
-          Audio playback is native. yt-dlp and Deno are bundled in each application and extracted privately on first launch. No separate playback tool installation is needed. Google sign-in on Windows requires the Microsoft Edge WebView2 Runtime. macOS builds are ad-hoc signed and are not notarized.
+          Audio playback is native. yt-dlp and QuickJS-NG are bundled and extracted into Cassette's private data directory on first launch. Google sign-in on Windows requires the Microsoft Edge WebView2 Runtime. macOS builds are ad-hoc signed.
 
-          All three builds pass formatting, Clippy, native executable startup checks, and packaging validation. Please test playback and sign-in on your device and report problems through GitHub Issues.
+          All three builds pass formatting, Clippy, embedded runtime checks and packaging validation.
           EOF
           if [[ "$prerelease" == true ]]; then
             printf '\nThis is a beta prerelease. Features and provider integrations may change.\n' >> release-notes.md

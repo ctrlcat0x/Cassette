@@ -1,6 +1,6 @@
 [package]
 name = "raag"
-version = "0.6.0-beta"
+version = "0.7.0-beta"
 edition = "2024"
 description = "A native, keyboard-friendly music player built with Rust and GPUI"
 license = "MIT"
@@ -11,7 +11,7 @@ path = "src/main.rs"
 
 [features]
 allocation-profile = []
-bundled-runtime = []
+bundled-runtime = ["dep:zstd"]
 
 [dependencies]
 cpal = "=0.16.0"
@@ -29,9 +29,9 @@ rand = "0.9"
 sha1 = "0.10"
 sha2 = "0.10"
 flate2 = "1"
+zstd = { version = "0.13.3", default-features = false, optional = true }
 httpdate = "1"
 base64 = "0.22"
-des = "0.8"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 wry = "=0.57.0"
 tao = "=0.37.1"
@@ -45,6 +45,7 @@ souvlaki = { version = "=0.8.3", default-features = false, features = ["use_zbus
 lofty = "0.22"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "=0.61.3", features = ["Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 windows-sys = { version = "0.61", features = ["Win32_Security_Cryptography", "Win32_System_Memory", "Win32_Security_Authorization", "Win32_UI_WindowsAndMessaging", "Win32_Storage_FileSystem"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -57,7 +58,7 @@ x11rb = { version = "0.13", default-features = false, features = ["allow-unsafe-
 
 [build-dependencies]
 winresource = "0.1.31"
-flate2 = "1"
+zstd = { version = "0.13.3", default-features = false }
 sha2 = "0.10"
 
 [profile.dev]

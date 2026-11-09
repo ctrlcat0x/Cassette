@@ -44,7 +44,8 @@ mod embedded {
             .prefix(".extract-")
             .tempdir_in(&root)?;
         crate::auth::storage::restrict(stage.path())?;
-        let mut source = flate2::read::GzDecoder::new(PAYLOAD);
+        let mut source = zstd::stream::read::Decoder::with_buffer(PAYLOAD)?;
+        source.window_log_max(22)?;
         let mut buffer = [0u8; 64 * 1024];
         for (name, size, expected) in FILES {
             if std::path::Path::new(name)
@@ -75,7 +76,7 @@ mod embedded {
                 fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
             }
         }
-        // Reading to EOF also validates gzip's checksum before marking ready.
+        // Reading to EOF also validates the frame checksum before marking ready.
         if source.read(&mut buffer[..1])? != 0 {
             bail!("Unexpected bundled playback data");
         }
@@ -93,7 +94,7 @@ mod embedded {
     pub fn executable(name: &str) -> Option<PathBuf> {
         let root = DIRECTORY.get()?;
         Some(match name {
-            "yt-dlp" | "deno" => root.join(if cfg!(windows) {
+            "yt-dlp" | "qjs" => root.join(if cfg!(windows) {
                 format!("{name}.exe")
             } else {
                 name.into()
@@ -122,7 +123,7 @@ pub(crate) fn executable(name: &str) -> Option<std::path::PathBuf> {
 /// Verify the exact embedded executables, without PATH or user overrides.
 pub fn verify() -> anyhow::Result<()> {
     prepare()?;
-    for name in ["yt-dlp", "deno"] {
+    for name in ["yt-dlp", "qjs"] {
         let path = executable(name)
             .ok_or_else(|| anyhow::anyhow!("This build has no embedded runtime"))?;
         let mut command = std::process::Command::new(&path);

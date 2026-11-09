@@ -2,15 +2,6 @@
 use gpui_kit::*;
 use std::{cell::RefCell, rc::Rc, time::Instant};
 
-/// Small, finite row reveals; late materialized rows appear immediately.
-pub fn stagger_phase(elapsed: f32, index: usize) -> f32 {
-    if index >= 12 {
-        return 1.;
-    }
-    let phase = ((elapsed - index as f32 * 0.018) / 0.18).clamp(0., 1.);
-    1. - (1. - phase).powi(3)
-}
-
 #[derive(Default)]
 struct Travel {
     target: f32,
@@ -181,9 +172,6 @@ impl SmoothScroll {
         }
         let current = f32::from(self.handle.offset().y);
         let mut travel = self.travel.borrow_mut();
-        if travel.direction != delta.signum() {
-            travel.velocity = 0.;
-        }
         travel.target = wheel_target(
             current,
             travel.target,

@@ -3,11 +3,8 @@ impl Raag {
     pub(super) fn recap_screen(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let width = (self.content_width(window) - 96.).max(240.);
         let compact = width < 850.;
-        // Poster palette follows the supplied chart reference, independently
-        // of the surrounding app theme, with explicit text roles throughout.
-        let blue: Hsla = rgb(0x2879ed).into();
-        let yellow: Hsla = rgb(0xffdf70).into();
-        let ink: Hsla = rgb(0x101c32).into();
+        let surface = cx.theme().muted.opacity(0.22);
+        let foreground = cx.theme().foreground;
         let period = (self.recap_period > 0).then(|| {
             self.library
                 .stats
@@ -23,21 +20,23 @@ impl Raag {
             .w_full()
             .min_w_0()
             .gap_7()
-            .p_7()
-            .bg(blue)
-            .text_color(ink)
+            .p_6()
+            .rounded_lg()
+            .bg(surface)
+            .text_color(foreground)
             .child(
                 div()
                     .flex()
                     .items_center()
                     .justify_between()
+                    .flex_wrap()
                     .gap_4()
                     .child(
                         div()
                             .text_lg()
                             .font_family(raag::i18n::font())
                             .font_weight(FontWeight::BOLD)
-                            .child("Cassette / listening story"),
+                            .child(t("Your rhythm")),
                     )
                     .child(
                         div().flex().flex_wrap().gap_2().children(
@@ -60,49 +59,25 @@ impl Raag {
             )
             .child(
                 div()
-                    .text_size(px((width * 0.12).clamp(48., 180.)))
-                    .line_height(relative(0.94))
-                    .font_weight(FontWeight::EXTRA_BOLD)
-                    .font_family(if self.library.language == "hi" {
-                        raag::i18n::font()
-                    } else {
-                        "Segoe UI Black"
-                    })
-                    .text_color(yellow)
-                    .child(if width < 520. {
-                        t("YOUR\nCHARTS")
-                    } else {
-                        t("YOUR CHARTS")
-                    }),
-            );
-        let mut details = div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .gap_6()
-            .child(
-                div()
-                    .text_2xl()
+                    .text_3xl()
                     .font_family(raag::i18n::font())
-                    .line_height(relative(1.15))
                     .font_weight(FontWeight::BOLD)
-                    .text_color(yellow)
+                    .text_color(foreground)
                     .child(t("Your music, on repeat.")),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap_7()
-                    .child(self.recap_metric(
-                        &(stats.seconds / 60.).floor().to_string(),
-                        t("Minutes listened"),
-                        yellow,
-                    ))
-                    .child(self.recap_metric(&top.len().to_string(), t("Songs"), yellow))
-                    .child(self.recap_metric(&artists.len().to_string(), t("Artists"), yellow)),
             );
+        let mut details = div().flex().flex_col().flex_1().min_w_0().gap_6().child(
+            div()
+                .flex()
+                .flex_wrap()
+                .gap_7()
+                .child(self.recap_metric(
+                    &(stats.seconds / 60.).floor().to_string(),
+                    t("Minutes listened"),
+                    foreground,
+                ))
+                .child(self.recap_metric(&top.len().to_string(), t("Songs"), foreground))
+                .child(self.recap_metric(&artists.len().to_string(), t("Artists"), foreground)),
+        );
         if let Some(favourite) = top.first() {
             let mut rankings = div()
                 .flex()
@@ -177,7 +152,7 @@ impl Raag {
                         .font_family(raag::i18n::font())
                         .font_weight(FontWeight::BOLD)
                         .line_height(relative(1.2))
-                        .text_color(yellow)
+                        .text_color(foreground)
                         .child(track.title.clone()),
                 )
                 .child(div().text_sm().child(self.artist_link(&track, cx)))
@@ -185,8 +160,7 @@ impl Raag {
                     Button::new("chart-play-favourite")
                         .label(t("Play again"))
                         .icon(icon("play"))
-                        .bg(ink)
-                        .text_color(yellow)
+                        .primary()
                         .on_click(
                             cx.listener(move |this, _, _, cx| this.open_track(owned.clone(), cx)),
                         ),
@@ -207,9 +181,9 @@ impl Raag {
                     .py_8()
                     .text_lg()
                     .font_family(raag::i18n::font())
-                    .child(t(t(
+                    .child(t(
                         "Play a song to start your charts. Your story grows as you listen.",
-                    ))),
+                    )),
             );
         }
         self.scroll
@@ -219,7 +193,7 @@ impl Raag {
             .px_8()
             .pt_5()
             .pb_8()
-            .child(div().p_3().bg(yellow).child(poster))
+            .child(poster)
             .into_any_element()
     }
     fn recap_metric(&self, value: &str, label: &str, color: Hsla) -> Div {
@@ -235,11 +209,6 @@ impl Raag {
                     .font_weight(FontWeight::EXTRA_BOLD)
                     .child(value.to_owned()),
             )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(rgb(0x101c32))
-                    .child(label.to_owned()),
-            )
+            .child(div().text_sm().text_color(color).child(label.to_owned()))
     }
 }

@@ -39,6 +39,58 @@ fn ui_px(value: f32) -> Pixels {
 fn content_button(id: impl Into<ElementId>) -> ContentButton {
     ContentButton::new(id).line_height(relative(1.4))
 }
+#[derive(IntoElement)]
+struct NavigationButton {
+    id: &'static str,
+    selected: bool,
+    button: Button,
+}
+impl RenderOnce for NavigationButton {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        use gpui_kit::base::motion::{Transition, transition};
+        let amount = transition(
+            (self.id, "selection"),
+            if self.selected { 1f32 } else { 0. },
+            Transition::new(Duration::from_millis(140)),
+            window,
+            cx,
+        );
+        self.button.bg(cx.theme().sidebar_accent.opacity(amount))
+    }
+}
+#[derive(IntoElement)]
+struct HoverArtwork {
+    id: SharedString,
+    view: EntityId,
+    child: AnyElement,
+}
+impl RenderOnce for HoverArtwork {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        use gpui_kit::base::motion::{Transition, transition};
+        let hovered =
+            window.use_keyed_state((ElementId::from(self.id.clone()), "hover"), cx, |_, _| {
+                false
+            });
+        let opacity = transition(
+            self.id.clone(),
+            if *hovered.read(cx) { 0.88f32 } else { 1. },
+            Transition::new(Duration::from_millis(120)),
+            window,
+            cx,
+        );
+        div()
+            .id(self.id)
+            .w_full()
+            .opacity(opacity)
+            .child(self.child)
+            .on_hover(move |active, _, cx| {
+                if *hovered.read(cx) != *active {
+                    hovered.update(cx, |value, _| *value = *active);
+                    cx.notify(self.view);
+                }
+            })
+    }
+}
 fn playback_depth(button: Button) -> Button {
     button
         .border_1()
@@ -98,6 +150,7 @@ actions!(
         ToggleImmersiveLyrics,
         ExitImmersive,
         OpenSettings,
+        QuitApp,
         OpenRecap,
         OpenLocal,
         OpenOffline,
@@ -126,7 +179,16 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new(&format!("{modifier}-left"), PreviousTrack, Some("Raag")),
         KeyBinding::new(&format!("{modifier}-k"), FocusSearch, Some("Raag")),
         KeyBinding::new(&format!("{modifier}-b"), ToggleSidebar, Some("Raag")),
-        KeyBinding::new(&format!("{modifier}-q"), ShowQueue, Some("Raag")),
+        KeyBinding::new(
+            if cfg!(target_os = "macos") {
+                "cmd-j"
+            } else {
+                "ctrl-q"
+            },
+            ShowQueue,
+            Some("Raag"),
+        ),
+        KeyBinding::new(&format!("{modifier}-,"), OpenSettings, Some("Raag")),
         KeyBinding::new(&format!("{modifier}-l"), ShowLyrics, Some("Raag")),
         KeyBinding::new(&format!("{modifier}-h"), GoHome, Some("Raag")),
         KeyBinding::new(&format!("{modifier}-o"), ImportFiles, Some("Raag")),
@@ -134,6 +196,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", CloseOverlay, Some("Raag")),
         KeyBinding::new("f11", Fullscreen, Some("Raag")),
     ]);
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([KeyBinding::new("cmd-q", QuitApp, Some("Raag"))]);
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -196,7 +260,20 @@ impl Render for ContentPane {
         self.owner
             .update(cx, |this, cx| {
                 this.images.update(cx, |cache, _| cache.begin_view(view));
-                this.main_content(window, cx)
+                let content = this.main_content(window, cx);
+                let started = this.page_changed_at;
+                let page = div().size_full().min_h_0().child(content);
+                let progress = started.elapsed().as_secs_f32() / 0.16;
+                if progress < 1. && !cx.reduce_motion() && window.is_window_active() {
+                    let remaining = (1. - progress).powi(3);
+                    window.on_next_frame(move |_, cx| cx.notify(view));
+                    page.opacity(1. - 0.14 * remaining)
+                        .relative()
+                        .top(ui_px(4. * remaining))
+                        .into_any_element()
+                } else {
+                    page.into_any_element()
+                }
             })
             .unwrap_or_else(|_| div().into_any_element())
     }
@@ -325,6 +402,8 @@ pub struct Raag {
     sidebar_visible: bool,
     system: Option<crate::system::System>,
     media: Option<crate::media::Media>,
+    #[cfg(target_os = "windows")]
+    taskbar: Option<crate::taskbar::Taskbar>,
     downloads: crate::downloads::Downloads,
     download_status: crate::downloads::Status,
     instance: crate::system::Instance,
@@ -374,7 +453,7 @@ pub struct Raag {
     images: Entity<crate::images::ResidentImages>,
     missing_artwork: std::rc::Rc<std::cell::RefCell<crate::artwork_queue::PendingArtwork>>,
     artwork_attempted: std::rc::Rc<std::cell::RefCell<HashMap<String, Instant>>>,
-    collection_reveal_at: Instant,
+    page_changed_at: Instant,
     previous_track: Option<Track>,
     track_changed_at: Instant,
     playing: bool,
@@ -418,6 +497,12 @@ impl Raag {
         raag::i18n::set_language(&library.language);
         let system = crate::system::System::new().ok();
         let media = crate::media::Media::new(window);
+        #[cfg(target_os = "windows")]
+        let taskbar = crate::taskbar::Taskbar::new(window);
+        #[cfg(target_os = "windows")]
+        if taskbar.is_none() {
+            eprintln!("Windows taskbar thumbnail controls are unavailable in this session");
+        }
         raag::cache::configure(library.audio_budget, library.offline_only);
         if std::env::args_os().any(|arg| arg == "--background") {
             if system.is_some() && crate::system::hide_supported(window) {
@@ -539,7 +624,7 @@ impl Raag {
                         && !query.starts_with("https://")
                         && !query.starts_with("cassette://")
                         && !query.starts_with("spotify:"))
-                    .then(|| (query, Instant::now() + Duration::from_millis(350)));
+                    .then(|| (query, Instant::now() + Duration::from_millis(250)));
                     cx.notify();
                 }
                 if matches!(event, InputEvent::PressEnter { .. }) {
@@ -623,6 +708,14 @@ impl Raag {
                 this.save();
             }
         });
+        let visibility_subscription =
+            window.observe_window_visibility(move |visibility, window, _| {
+                if visibility.is_visible() {
+                    // Cached panes may have missed frames while hidden. Refresh
+                    // their complete display lists once when presentation resumes.
+                    window.refresh();
+                }
+            });
         let pump = cx.spawn_in(window, async move |view, cx| {
             let mut delay = Duration::from_millis(33);
             loop {
@@ -642,8 +735,15 @@ impl Raag {
                             || this.lyrics_loading
                         {
                             250
-                        } else if window.is_window_active() {
+                        } else if window.is_window_active()
+                            && (this.suggestion_pending.is_some()
+                                || this.auth.busy()
+                                || this.account.syncing()
+                                || this.download_status.active)
+                        {
                             150
+                        } else if window.is_window_active() {
+                            250
                         } else {
                             350
                         },
@@ -721,6 +821,8 @@ impl Raag {
             library,
             system,
             media,
+            #[cfg(target_os = "windows")]
+            taskbar,
             downloads,
             download_status: Default::default(),
             instance,
@@ -770,7 +872,7 @@ impl Raag {
             images: crate::images::ResidentImages::new(cx),
             missing_artwork: Default::default(),
             artwork_attempted: Default::default(),
-            collection_reveal_at: Instant::now(),
+            page_changed_at: Instant::now(),
             previous_track: None,
             track_changed_at: Instant::now(),
             playing: false,
@@ -798,6 +900,7 @@ impl Raag {
             scroll: crate::motion::SmoothScroll::new(),
             collection_seed: None,
             _subscriptions: vec![
+                visibility_subscription,
                 search_subscription,
                 browse_subscription,
                 seek_subscription,
@@ -824,6 +927,11 @@ impl Raag {
     fn save(&self) {
         if self.writable {
             self.backend.save(self.snapshot());
+        }
+    }
+    fn flush(&self) {
+        if self.writable {
+            self.backend.flush(self.snapshot());
         }
     }
     fn snapshot(&self) -> Library {
@@ -922,6 +1030,18 @@ impl Raag {
             .instance
             .poll()
             .or_else(|| self.system.as_ref().and_then(crate::system::System::poll))
+            .or_else(|| {
+                #[cfg(target_os = "windows")]
+                {
+                    self.taskbar
+                        .as_ref()
+                        .and_then(|taskbar| taskbar.events.try_recv().ok())
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    None
+                }
+            })
         {
             match command {
                 crate::system::Command::Show => {
@@ -929,8 +1049,10 @@ impl Raag {
                     self.sync_on_open = true;
                 }
                 crate::system::Command::TogglePlayback => self.toggle_playback(cx),
+                crate::system::Command::Previous => self.previous(cx),
+                crate::system::Command::Next => self.next(false, cx),
                 crate::system::Command::Quit => {
-                    self.backend.flush(self.snapshot());
+                    self.flush();
                     cx.quit();
                     return;
                 }
@@ -1047,9 +1169,6 @@ impl Raag {
                 }
                 Event::Page(id, page, append) if id == self.revision => {
                     let mut page = *page;
-                    if self.catalog.is_empty() && !append {
-                        self.collection_reveal_at = Instant::now();
-                    }
                     self.loading = false;
                     self.continuation = page.continuation.clone();
                     if append {
@@ -1503,7 +1622,17 @@ impl Raag {
                     clock_changed = true;
                 }
                 PlayerEvent::Duration(duration) => {
+                    if !duration.is_finite() || duration <= 0. {
+                        continue;
+                    }
                     self.duration = duration;
+                    if let Some(track) = &mut self.selected {
+                        track.duration = duration.round() as u64;
+                        self.queue.set_duration(&track.id, track.duration);
+                    }
+                    if self.screen == Screen::Queue {
+                        self.refresh_visible();
+                    }
                     panel_changed = true;
                     changed = true;
                 }
@@ -1543,16 +1672,17 @@ impl Raag {
         }
         if clock_changed {
             self.prefetch_next();
-            if !self.immersive {
+            if window.is_visible() && !self.immersive {
                 self.playback_progress.update(cx, |_, cx| cx.notify());
             }
-            if self.immersive || self.screen == Screen::Lyrics {
+            if window.is_visible() && (self.immersive || self.screen == Screen::Lyrics) {
                 self.mini_progress.update(cx, |_, cx| cx.notify());
             }
         }
-        if self.panel == Some(Panel::Lyrics)
-            || (self.immersive && self.immersive_lyrics)
-            || self.screen == Screen::Lyrics
+        if window.is_visible()
+            && (self.panel == Some(Panel::Lyrics)
+                || (self.immersive && self.immersive_lyrics)
+                || self.screen == Screen::Lyrics)
         {
             self.follow_lyrics(window, cx);
         }
@@ -1788,7 +1918,7 @@ impl Raag {
             self.back.push(self.screen.clone());
             self.forward.clear();
             self.screen = screen;
-            self.collection_reveal_at = Instant::now();
+            self.page_changed_at = Instant::now();
             self.revision += 1;
             self.loading = false;
             self.continuation = None;
@@ -1839,7 +1969,7 @@ impl Raag {
                 self.forward.push(self.screen.clone());
             }
             self.screen = screen;
-            self.collection_reveal_at = Instant::now();
+            self.page_changed_at = Instant::now();
             self.revision += 1;
             self.loading = false;
             self.catalog = Arc::new(vec![]);
@@ -1901,6 +2031,12 @@ impl Raag {
         }
         if track.playable() {
             let mut tracks = self.visible.as_ref().clone();
+            if self.library.offline_only {
+                tracks.retain(|song| {
+                    song.kind == ItemKind::Local
+                        || self.offline.iter().any(|cached| cached.id == song.id)
+                });
+            }
             if !tracks.iter().any(|song| song.id == track.id) {
                 // Recent Home tiles may originate from account history rather than the catalog shelves.
                 tracks.insert(0, track.clone());
@@ -2426,24 +2562,7 @@ impl Raag {
         .detach();
     }
     fn title(&self, subtitle: &str, cx: &App) -> Div {
-        gpui_kit::div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .mb_6()
-            .child(
-                gpui_kit::div()
-                    .text_3xl()
-                    .font_family(raag::i18n::font())
-                    .font_weight(FontWeight::BOLD)
-                    .child(self.screen.title().to_owned()),
-            )
-            .child(
-                gpui_kit::div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(subtitle.to_owned()),
-            )
+        self.page_heading(self.screen.title().to_owned(), subtitle.to_owned(), cx)
     }
     fn artwork_path(&self, track: &Track) -> Option<&PathBuf> {
         self.artwork.get(track.artwork_key()).or_else(|| {
@@ -3007,13 +3126,16 @@ impl Raag {
             ("explore", t("Explore"), "compass", Screen::Explore),
             ("library", t("Your library"), "library", Screen::Library),
             ("liked", t("Liked songs"), "heart", Screen::Liked),
+            ("local", t("Local files"), "folder", Screen::Local),
+            ("offline", t("Offline music"), "download", Screen::Offline),
         ] {
+            let selected = self.screen == screen;
             navigation = navigation.child(
                 Button::new(id)
                     .ghost()
                     .w_full()
                     .flex_shrink_0()
-                    .selected(self.screen == screen)
+                    .selected(selected)
                     .tooltip(label)
                     .accessibility_label(label)
                     .child(
@@ -3025,7 +3147,12 @@ impl Raag {
                             .child(icon(image))
                             .when(expanded, |div| div.child(label)),
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| this.navigate(screen.clone(), cx))),
+                    .on_click(cx.listener(move |this, _, _, cx| this.navigate(screen.clone(), cx)))
+                    .map(|button| NavigationButton {
+                        id,
+                        selected,
+                        button,
+                    }),
             );
         }
         if expanded {
@@ -3073,6 +3200,7 @@ impl Raag {
             .child(
                 Button::new(SharedString::from(format!("{location}-previous")))
                     .ghost()
+                    .when(self.immersive, |button| Self::immersive_button(button, cx))
                     .when(sidebar, |button| button.small().size(ui_px(28.)))
                     .icon(icon("skip-prev"))
                     .text_color(foreground)
@@ -3111,14 +3239,17 @@ impl Raag {
                         t("Cancel loading")
                     } else if self.failed {
                         t("Retry playback")
+                    } else if self.playing {
+                        t("Pause")
                     } else {
-                        t("Play or pause")
+                        t("Play")
                     })
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_playback(cx))),
             )
             .child(
                 Button::new(SharedString::from(format!("{location}-next")))
                     .ghost()
+                    .when(self.immersive, |button| Self::immersive_button(button, cx))
                     .when(sidebar, |button| button.small().size(ui_px(28.)))
                     .icon(icon("skip-next"))
                     .text_color(foreground)
@@ -3827,21 +3958,7 @@ impl Raag {
             .when(track.playable(), |row| {
                 row.child(self.track_menu(track, ix, queued, current, cx))
             });
-        // One anchored reveal per navigation, never restarted by scrolling or resizing.
-        let started = self.collection_reveal_at;
-        if collection && ix < 12 && !cx.reduce_motion() && started.elapsed().as_secs_f32() < 0.4 {
-            row.with_animation(
-                SharedString::from(format!("track-reveal-{}-{ix}", self.revision)),
-                Animation::new(Duration::from_millis(400)),
-                move |row, _| {
-                    let phase = crate::motion::stagger_phase(started.elapsed().as_secs_f32(), ix);
-                    row.relative().top(px(5. * (1. - phase))).opacity(phase)
-                },
-            )
-            .into_any_element()
-        } else {
-            row.into_any_element()
-        }
+        row.into_any_element()
     }
     fn track_menu(
         &self,
@@ -4071,6 +4188,14 @@ impl Raag {
     }
     fn empty_state(&self, cx: &mut Context<Self>) -> AnyElement {
         let (title, detail) = match self.screen {
+            Screen::Explore | Screen::Discover(..) if self.library.offline_only => (
+                t("This page is unavailable offline."),
+                t("Your local files and downloaded songs are still available."),
+            ),
+            Screen::Explore | Screen::Discover(..) => (
+                t("Explore music"),
+                t("Music could not be loaded. Refresh to try again."),
+            ),
             Screen::Liked => (
                 t("Keep the songs you love."),
                 t("Tap the heart beside a song to find it here."),
@@ -4086,6 +4211,16 @@ impl Raag {
             Screen::Queue => (
                 t("A little quiet, for now."),
                 t("Play a song or add tracks to the queue."),
+            ),
+            Screen::Offline => (
+                t("Offline"),
+                t(
+                    "Download a song or collection from its menu. Recently cached songs also appear here.",
+                ),
+            ),
+            Screen::Search if !self.search_query.trim().is_empty() => (
+                t("No results found"),
+                t("Try another song, artist or album."),
             ),
             Screen::Search => (
                 t("Find your next favourite."),
@@ -4105,9 +4240,16 @@ impl Raag {
             .gap_4()
             .p_8()
             .child(
-                icon("music-double-note")
-                    .size_12()
-                    .text_color(cx.theme().primary),
+                icon(match self.screen {
+                    Screen::Liked => "heart",
+                    Screen::Local => "folder",
+                    Screen::Offline => "download",
+                    Screen::Search => "search",
+                    Screen::Queue => "now-playing",
+                    _ => "music-double-note",
+                })
+                .size_12()
+                .text_color(cx.theme().primary),
             )
             .child(
                 gpui_kit::div()
@@ -4124,7 +4266,13 @@ impl Raag {
                 gpui_kit::div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child(detail),
+                    .max_w(rems(32.))
+                    .text_center()
+                    .child(if self.loading {
+                        t("Loading music…")
+                    } else {
+                        detail
+                    }),
             )
             .when(self.screen == Screen::Local, |div| {
                 div.child(
@@ -4134,14 +4282,31 @@ impl Raag {
                         .on_click(cx.listener(|this, _, _, cx| this.import(cx))),
                 )
             })
+            .when(
+                matches!(self.screen, Screen::Explore | Screen::Discover(..)),
+                |div| {
+                    if self.library.offline_only {
+                        div.child(
+                            Button::new("browse-local-empty")
+                                .label(t("Local files"))
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.navigate(Screen::Local, cx)),
+                                ),
+                        )
+                    } else {
+                        div.child(
+                            Button::new("retry-explore-empty")
+                                .label(t("Refresh"))
+                                .icon(icon("refresh"))
+                                .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
+                        )
+                    }
+                },
+            )
             .into_any_element()
     }
     fn track_list(&self, cx: &mut Context<Self>) -> AnyElement {
         if self.visible.is_empty() {
-            if self.screen == Screen::Offline {
-                return div().p_5().text_sm().text_color(cx.theme().muted_foreground)
-                .child(t("Download a song or collection from its menu. Recently cached songs also appear here.")).into_any_element();
-            }
             return self.empty_state(cx);
         }
         let entity = cx.entity();
@@ -4173,8 +4338,19 @@ impl Raag {
             .px_8()
             .pb_6()
             .gap_4()
-            .child(self.title(t("Play something that stays with you."), cx));
-        body = body.child(self.collection_tools(cx));
+            .child(self.title(
+                match self.screen {
+                    Screen::Local => t("Your files. Your favourites."),
+                    Screen::Offline => {
+                        t("Your local files and downloaded songs are still available.")
+                    }
+                    _ => t("Play something that stays with you."),
+                },
+                cx,
+            ));
+        if !self.visible.is_empty() || !self.browse_filter.is_empty() || self.selecting {
+            body = body.child(self.collection_tools(cx));
+        }
         if self.screen == Screen::Offline {
             body = body.child(self.offline_controls(cx));
         }
@@ -4315,7 +4491,11 @@ impl Raag {
                         })),
                 );
         }
-        body = body.child(actions);
+        if !self.visible.is_empty()
+            || matches!(self.screen, Screen::Collection(..) | Screen::Search)
+        {
+            body = body.child(actions);
+        }
         if self.editing_playlist {
             body = body.child(self.playlist_editor(cx));
         }
@@ -4481,7 +4661,7 @@ impl Raag {
         if self.library.close_to_tray && self.system.is_some() && crate::system::hide(window, cx) {
             false
         } else {
-            self.backend.flush(self.snapshot());
+            self.flush();
             true
         }
     }
@@ -4515,91 +4695,95 @@ impl Raag {
     }
     fn settings(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let tray_available = self.system.is_some() && crate::system::hide_supported(window);
-        let account = self
-            .settings_section("YouTube Music", t("Your account and library"), cx)
-            .child(div().text_sm().child(self.auth.account().map_or_else(
-                || t("Sign in to bring your playlists and liked songs here.").into(),
-                |account| format!("{} {}", account.name, account.handle),
-            )))
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        Button::new("youtube-sign-in")
-                            .primary()
-                            .label(if self.auth.busy() {
-                                t("Signing in…")
-                            } else if self.auth.account().is_some() {
-                                t("Switch account")
-                            } else {
-                                t("Sign in to YouTube Music")
-                            })
-                            .disabled(self.auth.busy())
-                            .on_click(cx.listener(|this, _, _, cx| this.sign_in(cx))),
-                    )
-                    .when(self.auth.can_cancel(), |row| {
-                        row.child(
-                            Button::new("cancel-youtube-login")
-                                .ghost()
-                                .label(t("Cancel"))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.auth.cancel();
-                                    this.content_revision += 1;
-                                    cx.notify();
-                                })),
+        let account = |cx: &mut Context<Self>| {
+            self.settings_section("YouTube Music", t("Your account and library"), cx)
+                .child(div().text_sm().child(self.auth.account().map_or_else(
+                    || t("Sign in to bring your playlists and liked songs here.").into(),
+                    |account| format!("{} {}", account.name, account.handle),
+                )))
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Button::new("youtube-sign-in")
+                                .primary()
+                                .label(if self.auth.busy() {
+                                    t("Signing in…")
+                                } else if self.auth.account().is_some() {
+                                    t("Switch account")
+                                } else {
+                                    t("Sign in to YouTube Music")
+                                })
+                                .disabled(self.auth.busy())
+                                .on_click(cx.listener(|this, _, _, cx| this.sign_in(cx))),
                         )
-                    })
-                    .child(
-                        Button::new("forget-cookies")
-                            .ghost()
-                            .label(t("Sign out"))
-                            .disabled(
-                                !self.auth.can_sign_out() && self.library.cookies_path.is_empty(),
+                        .when(self.auth.can_cancel(), |row| {
+                            row.child(
+                                Button::new("cancel-youtube-login")
+                                    .ghost()
+                                    .label(t("Cancel"))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.auth.cancel();
+                                        this.content_revision += 1;
+                                        cx.notify();
+                                    })),
                             )
-                            .on_click(cx.listener(|this, _, _, cx| this.sign_out(cx))),
+                        })
+                        .child(
+                            Button::new("forget-cookies")
+                                .ghost()
+                                .label(t("Sign out"))
+                                .disabled(
+                                    !self.auth.can_sign_out()
+                                        && self.library.cookies_path.is_empty(),
+                                )
+                                .on_click(cx.listener(|this, _, _, cx| this.sign_out(cx))),
+                        ),
+                )
+        };
+        let playback = |cx: &mut Context<Self>| {
+            self.settings_section(t("Playback"), t("Make the queue your own"), cx)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_4()
+                        .child(div().w_24().text_sm().child(t("Volume")))
+                        .child(
+                            div()
+                                .flex_1()
+                                .max_w(rems(20.))
+                                .child(Slider::new(&self.volume)),
+                        )
+                        .child(
+                            div()
+                                .w_12()
+                                .text_sm()
+                                .text_right()
+                                .child(format!("{:.0}%", self.library.volume)),
+                        ),
+                )
+                .child(
+                    self.setting_row(
+                        t("Continue with similar songs"),
+                        Switch::new("autoplay-setting")
+                            .accessibility_label(t("Continue with similar songs"))
+                            .checked(self.library.autoplay)
+                            .on_change(cx.listener(|this, value, _, cx| {
+                                this.library.autoplay = *value;
+                                this.content_revision += 1;
+                                this.save();
+                                cx.notify();
+                            })),
+                        cx,
                     ),
-            );
-        let playback = self
-            .settings_section(t("Playback"), t("Make the queue your own"), cx)
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_4()
-                    .child(div().w_24().text_sm().child(t("Volume")))
-                    .child(
-                        div()
-                            .flex_1()
-                            .max_w(rems(20.))
-                            .child(Slider::new(&self.volume)),
-                    )
-                    .child(
-                        div()
-                            .w_12()
-                            .text_sm()
-                            .text_right()
-                            .child(format!("{:.0}%", self.library.volume)),
-                    ),
-            )
-            .child(
-                self.setting_row(
-                    t("Continue with similar songs"),
-                    Switch::new("autoplay-setting")
-                        .accessibility_label(t("Continue with similar songs"))
-                        .checked(self.library.autoplay)
-                        .on_change(cx.listener(|this, value, _, cx| {
-                            this.library.autoplay = *value;
-                            this.content_revision += 1;
-                            this.save();
-                            cx.notify();
-                        })),
-                    cx,
-                ),
-            );
-        let system = self.settings_section(t("System"), t("Ready when you are"), cx)
+                )
+        };
+        let system = |cx: &mut Context<Self>| {
+            self.settings_section(t("System"), t("Ready when you are"), cx)
             .child(self.setting_row(t("Music links"), Button::new("register-links").label(t("Enable Cassette links")).on_click(cx.listener(|this, _, _, cx| this.register_links(cx))), cx))
             .child(self.setting_row(t("Keep Cassette in the tray when closing"), Switch::new("close-to-tray").accessibility_label(t("Keep Cassette in the tray when closing"))
                 .checked(self.library.close_to_tray).disabled(!tray_available).on_change(cx.listener(|this, value, _, cx| {
@@ -4611,8 +4795,10 @@ impl Raag {
             .child(div().text_sm().text_color(cx.theme().muted_foreground).child(if self.media.is_some() { t("System media controls are connected.") } else { t("System media controls are unavailable in this session.") }))
             .child(div().text_sm().text_color(cx.theme().muted_foreground)
                 .child(if tray_available { t("Open the tray menu to return to Cassette or quit completely.") }
-                    else { t("Tray hiding is unavailable on this desktop. On Linux, use an X11 session with a system tray.") }));
-        let advanced = div().flex().flex_col().items_start().gap_4()
+                    else { t("Tray hiding is unavailable on this desktop. On Linux, use an X11 session with a system tray.") }))
+        };
+        let advanced = |cx: &mut Context<Self>| {
+            div().flex().flex_col().items_start().gap_4()
             .child(Button::new("advanced-settings").ghost()
                 .icon(icon(if self.advanced_settings { "nav-arrow-down" } else { "nav-arrow-right" }))
                 .label(t("Advanced"))
@@ -4629,7 +4815,8 @@ impl Raag {
                     .child(div().flex().flex_wrap().gap_2()
                         .child(Button::new("choose-cookies").ghost().label(t("Import cookies…")).disabled(self.auth.busy())
                             .on_click(cx.listener(|this, _, _, cx| this.choose_cookies(cx))))
-                        .child(Button::new("cookie-help").ghost().label(t("Cookie import help")).on_click(|_, _, cx| cx.open_url("https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies"))))));
+                        .child(Button::new("cookie-help").ghost().label(t("Cookie import help")).on_click(|_, _, cx| cx.open_url("https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies"))))))
+        };
         let mut tabs = div().flex().flex_wrap().gap_1().pb_2();
         for (index, label) in [
             "Appearance",
@@ -4648,7 +4835,11 @@ impl Raag {
                     .label(t(label))
                     .selected(self.settings_category == index)
                     .on_click(cx.listener(move |this, _, _, cx| {
+                        if this.settings_category == index {
+                            return;
+                        }
                         this.settings_category = index;
+                        this.page_changed_at = Instant::now();
                         this.scroll.reset();
                         this.content_revision += 1;
                         cx.notify();
@@ -4666,7 +4857,7 @@ impl Raag {
                 .flex()
                 .flex_col()
                 .gap_6()
-                .child(playback)
+                .child(playback(cx))
                 .child(
                     self.settings_section(t("Sound"), t("Output, tone and transitions"), cx)
                         .child(self.audio_controls(window, cx)),
@@ -4689,13 +4880,13 @@ impl Raag {
                     cx,
                 )
                 .child(self.offline_controls(cx)),
-            4 => account,
+            4 => account(cx),
             _ => div()
                 .flex()
                 .flex_col()
                 .gap_6()
-                .child(system)
-                .child(advanced),
+                .child(system(cx))
+                .child(advanced(cx)),
         };
         let content = div()
             .flex()
@@ -4724,7 +4915,7 @@ impl Raag {
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(tr!(
-                                "Version {} · Built with Rust and GPUI · Icons by Iconoir",
+                                "Version {} · Built with Rust and GPUI",
                                 env!("CARGO_PKG_VERSION")
                             )),
                     ),
@@ -4740,7 +4931,6 @@ impl Raag {
                     .flex()
                     .justify_center()
                     .px_8()
-                    .pt_5()
                     .pb_3()
                     .child(
                         div()
@@ -4921,6 +5111,10 @@ impl Render for Raag {
             .on_action(
                 cx.listener(|this, _: &OpenSettings, _, cx| this.navigate(Screen::Settings, cx)),
             )
+            .on_action(cx.listener(|this, _: &QuitApp, _, cx| {
+                this.flush();
+                cx.quit();
+            }))
             .on_action(cx.listener(|this, _: &OpenRecap, _, cx| this.navigate(Screen::Recap, cx)))
             .on_action(cx.listener(|this, _: &OpenLocal, _, cx| this.navigate(Screen::Local, cx)))
             .on_action(

@@ -96,6 +96,7 @@ impl NativeSession {
             let mut ended = false;
             let mut buffering = false;
             let mut selected = String::from("auto");
+            let mut output_running = false;
             let mut tick = Instant::now();
             let restart = |source: AudioSource,
                            seconds: f64,
@@ -115,13 +116,15 @@ impl NativeSession {
                 });
             };
             while !worker_closing.load(Ordering::Acquire) {
-                let wait = if source.is_none() || shared.paused.load(Ordering::Acquire) && announced
-                {
-                    Duration::from_millis(200)
+                let command = if source.is_none() {
+                    requests
+                        .recv()
+                        .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
+                } else if shared.paused.load(Ordering::Acquire) && announced {
+                    requests.recv_timeout(Duration::from_millis(200))
                 } else {
-                    Duration::from_millis(20)
+                    requests.recv_timeout(Duration::from_millis(20))
                 };
-                let command = requests.recv_timeout(wait);
                 let mut reload = false;
                 match command {
                     Ok(Command::Load(value)) => {
@@ -164,6 +167,7 @@ impl NativeSession {
                             match open_output(&settings.output, shared.clone()) {
                                 Ok(value) => {
                                     output = value;
+                                    output_running = false;
                                     selected = settings.output;
                                 }
                                 Err(error) => {
@@ -173,6 +177,7 @@ impl NativeSession {
                                     match open_output("auto", shared.clone()) {
                                         Ok(value) => {
                                             output = value;
+                                            output_running = false;
                                             selected = "auto".into();
                                         }
                                         Err(error) => {
@@ -198,6 +203,7 @@ impl NativeSession {
                     match open_output("auto", shared.clone()) {
                         Ok(value) => {
                             output = value;
+                            output_running = false;
                             selected = "auto".into();
                             reload = source.is_some();
                             emit(PlayerEvent::Devices(devices()));
@@ -242,11 +248,13 @@ impl NativeSession {
                     }
                 }
                 if source.is_some() {
-                    let buffered = shared.pcm.lock().unwrap().len();
+                    let (buffered, eof) = {
+                        let pcm = shared.pcm.lock().unwrap();
+                        (pcm.len(), shared.eof.load(Ordering::Acquire))
+                    };
                     if !announced
                         && (buffered >= output.1 as usize / 10
-                            || shared.eof.load(Ordering::Acquire)
-                                && (buffered > 0 || shared.consumed.load(Ordering::Acquire) > 0))
+                            || eof && (buffered > 0 || shared.consumed.load(Ordering::Acquire) > 0))
                     {
                         announced = true;
                         worker_loaded.store(true, Ordering::Release);
@@ -254,14 +262,14 @@ impl NativeSession {
                         emit(PlayerEvent::Buffering(false));
                         emit(PlayerEvent::Paused(shared.paused.load(Ordering::Acquire)));
                     }
-                    if announced && !ended && shared.eof.load(Ordering::Acquire) && buffered == 0 {
+                    if announced && !ended && eof && buffered == 0 {
                         ended = true;
                         emit(PlayerEvent::Ended);
                     }
                     let starved = announced
                         && !ended
                         && !shared.paused.load(Ordering::Acquire)
-                        && !shared.eof.load(Ordering::Acquire)
+                        && !eof
                         && buffered == 0;
                     if starved != buffering {
                         buffering = starved;
@@ -277,6 +285,22 @@ impl NativeSession {
                             base + shared.consumed.load(Ordering::Acquire) as f64 / output.1 as f64,
                         ));
                     }
+                }
+                let should_run =
+                    source.is_some() && !ended && !shared.paused.load(Ordering::Acquire);
+                if should_run != output_running {
+                    let result = if should_run {
+                        output.0.play().map_err(|error| error.to_string())
+                    } else {
+                        output.0.pause().map_err(|error| error.to_string())
+                    };
+                    if let Err(error) = result {
+                        emit(PlayerEvent::Error(format!(
+                            "Audio output could not change playback state: {error}"
+                        )));
+                        break;
+                    }
+                    output_running = should_run;
                 }
             }
             cancellation.store(true, Ordering::Release);
@@ -357,7 +381,6 @@ fn open_output(selected: &str, shared: Arc<Shared>) -> Result<(cpal::Stream, u32
         cpal::SampleFormat::U64 => output_stream::<u64>(&device, &config.into(), shared),
         _ => bail!("Audio output uses an unsupported sample format"),
     }?;
-    stream.play()?;
     Ok((stream, rate))
 }
 fn output_stream<T: cpal::SizedSample + cpal::FromSample<f32>>(
@@ -377,29 +400,39 @@ fn output_stream<T: cpal::SizedSample + cpal::FromSample<f32>>(
             if shared.paused.load(Ordering::Acquire) {
                 return;
             }
-            let Ok(mut pcm) = shared.pcm.try_lock() else {
-                return;
-            };
             if let Ok(settings) = shared.dsp.try_lock() {
                 dsp.configure(settings.0, settings.1);
             }
             let target = f64::from_bits(shared.volume.load(Ordering::Acquire)) as f32;
-            let mut consumed = 0;
-            for frame in output.chunks_mut(channels) {
-                let Some(stereo) = pcm.pop_front() else {
-                    break;
+            let mut scratch = [[0f32; 2]; 256];
+            for block in output.chunks_mut(channels * scratch.len()) {
+                let count = {
+                    let Ok(mut pcm) = shared.pcm.try_lock() else {
+                        break;
+                    };
+                    let count = (block.len() / channels).min(pcm.len());
+                    for (frame, sample) in scratch[..count].iter_mut().zip(pcm.drain(..count)) {
+                        *frame = sample;
+                    }
+                    shared.consumed.fetch_add(count as u64, Ordering::Release);
+                    count
                 };
-                volume += (target - volume) * 0.002;
-                let stereo = dsp.process(stereo);
-                if channels == 1 {
-                    frame[0] = T::from_sample((stereo[0] + stereo[1]) * 0.5 * volume);
-                } else {
-                    frame[0] = T::from_sample(stereo[0] * volume);
-                    frame[1] = T::from_sample(stereo[1] * volume);
+                // Release the queue before DSP. The decoder can refill it while
+                // filters run, without blocking or allocating on this callback.
+                for (frame, stereo) in block.chunks_mut(channels).zip(&scratch[..count]) {
+                    volume += (target - volume) * 0.002;
+                    let stereo = dsp.process(*stereo);
+                    if channels == 1 {
+                        frame[0] = T::from_sample((stereo[0] + stereo[1]) * 0.5 * volume);
+                    } else {
+                        frame[0] = T::from_sample(stereo[0] * volume);
+                        frame[1] = T::from_sample(stereo[1] * volume);
+                    }
                 }
-                consumed += 1;
+                if count * channels < block.len() {
+                    break;
+                }
             }
-            shared.consumed.fetch_add(consumed, Ordering::Release);
         },
         move |_| {
             failed.output_failed.store(true, Ordering::Release);
@@ -470,7 +503,11 @@ impl Dsp {
                 1.
             };
             for (index, frequency) in [60., 230., 910., 3600., 14000.].into_iter().enumerate() {
-                let state = self.filters[index].state;
+                let state = if gains[index] == 0. {
+                    [[0.; 2]; 2]
+                } else {
+                    self.filters[index].state
+                };
                 self.filters[index] = Biquad::peaking(self.rate, frequency, gains[index]);
                 self.filters[index].state = state;
             }
@@ -488,8 +525,10 @@ impl Dsp {
         let mut output = [0.; 2];
         for channel in 0..2 {
             let mut sample = input[channel] as f64 * self.headroom;
-            for filter in &mut self.filters {
-                sample = filter.sample(sample, channel);
+            for (filter, gain) in self.filters.iter_mut().zip(self.gains) {
+                if gain != 0. {
+                    sample = filter.sample(sample, channel);
+                }
             }
             output[channel] = (sample * self.gain).clamp(-1., 1.) as f32;
         }
@@ -550,7 +589,14 @@ fn decode(
         .n_frames
         .and_then(|frames| time_base.map(|base| base.calc_time(frames)))
         .map(|time| time.seconds as f64 + time.frac)
-        .unwrap_or(0.);
+        .filter(|duration| duration.is_finite() && *duration > 0.)
+        .unwrap_or_else(|| {
+            if source.duration.is_finite() {
+                source.duration.max(0.)
+            } else {
+                0.
+            }
+        });
     metadata(duration);
     if seconds > 0. {
         format
@@ -588,7 +634,13 @@ fn decode(
                     break;
                 }
                 drop(pcm);
-                thread::sleep(Duration::from_millis(5));
+                thread::sleep(Duration::from_millis(
+                    if shared.paused.load(Ordering::Acquire) {
+                        100
+                    } else {
+                        20
+                    },
+                ));
             }
         }
         Ok(())
@@ -733,6 +785,9 @@ fn decode(
     if output_count == 0 {
         bail!("Audio source contained no playable samples");
     }
+    // Serialize completion with reload's buffer reset. An old decoder must not
+    // mark a new seek as EOF after its cancellation flag was checked.
+    let _pcm = shared.pcm.lock().unwrap();
     if cancelled.load(Ordering::Acquire) {
         bail!("Audio decoding cancelled");
     }
@@ -746,6 +801,7 @@ fn decode(
 
 /// Bounded range cache keeps seeks cheap without retaining complete remote songs.
 const HTTP_CHUNK_BYTES: u64 = 1024 * 1024;
+const HTTP_INITIAL_BYTES: u64 = 64 * 1024;
 
 struct HttpSource {
     client: reqwest::blocking::Client,
@@ -754,7 +810,7 @@ struct HttpSource {
     position: u64,
     length: Option<u64>,
     blocks: VecDeque<(u64, Vec<u8>)>,
-    fallback: Option<std::fs::File>,
+    fallback: Option<(std::fs::File, reqwest::blocking::Response, u64)>,
     cancelled: Arc<AtomicBool>,
     policy: &'static crate::request_policy::RequestPolicy,
 }
@@ -773,13 +829,15 @@ impl HttpSource {
             reqwest::header::ACCEPT_ENCODING,
             reqwest::header::HeaderValue::from_static("identity"),
         );
+        if !headers.contains_key(reqwest::header::USER_AGENT) {
+            headers.insert(
+                reqwest::header::USER_AGENT,
+                reqwest::header::HeaderValue::from_str(&source.user_agent)?,
+            );
+        }
+        let client = crate::playback::stream_client()?;
         Ok(Self {
-            client: reqwest::blocking::Client::builder()
-                .no_gzip()
-                .timeout(Duration::from_secs(10))
-                .connect_timeout(Duration::from_secs(4))
-                .user_agent(&source.user_agent)
-                .build()?,
+            client,
             url: source.url.clone(),
             headers,
             position: 0,
@@ -791,6 +849,13 @@ impl HttpSource {
         })
     }
     fn fetch(&mut self, start: u64) -> io::Result<()> {
+        // Decode the opening packets without waiting for a full MiB. Later
+        // ranges retain throughput and the same bounded seek cache.
+        let requested = if start == 0 {
+            HTTP_INITIAL_BYTES
+        } else {
+            HTTP_CHUNK_BYTES
+        };
         if self.cancelled.load(Ordering::Acquire) {
             return Err(io::Error::new(
                 io::ErrorKind::Interrupted,
@@ -810,7 +875,7 @@ impl HttpSource {
             .headers(self.headers.clone())
             .header(
                 reqwest::header::RANGE,
-                format!("bytes={start}-{}", start + HTTP_CHUNK_BYTES - 1),
+                format!("bytes={start}-{}", start.saturating_add(requested - 1)),
             )
             .send()
             .map_err(|error| io::Error::other(error.without_url()))?;
@@ -833,16 +898,27 @@ impl HttpSource {
         response
             .error_for_status_ref()
             .map_err(|error| io::Error::other(error.without_url()))?;
+        if response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| {
+                value.starts_with("text/") || value.starts_with("application/json")
+            })
+        {
+            return Err(io::Error::other(
+                "The audio server returned a page instead of audio",
+            ));
+        }
         if response.status() == reqwest::StatusCode::OK {
-            // Some origins ignore Range. Use a private anonymous file, not unbounded RAM.
-            let mut file = tempfile::tempfile()?;
-            let count = io::copy(&mut response.take(512 * 1024 * 1024 + 1), &mut file)?;
-            if count > 512 * 1024 * 1024 {
+            // Cache a non-range response incrementally. Playback can start before
+            // the complete file arrives, and backward seeks reuse downloaded bytes.
+            let length = response.content_length();
+            if length.is_some_and(|length| length > 512 * 1024 * 1024) {
                 return Err(io::Error::other("Audio file exceeds 512 MiB"));
             }
-            self.length = Some(count);
-            file.seek(SeekFrom::Start(self.position))?;
-            self.fallback = Some(file);
+            self.length = length;
+            self.fallback = Some((tempfile::tempfile()?, response, 0));
             return Ok(());
         }
         let range = response
@@ -858,27 +934,33 @@ impl HttpSource {
             .split_once('-')
             .and_then(|(first, last)| Some((first.parse::<u64>().ok()?, last.parse::<u64>().ok()?)))
             .ok_or_else(|| io::Error::other("Invalid audio range response"))?;
-        if first != start || last < first || last - first >= HTTP_CHUNK_BYTES {
+        if first != start || last < first || last - first >= requested {
             return Err(io::Error::other("Audio server returned the wrong range"));
         }
         self.length = total.parse().ok().or(self.length);
-        let mut bytes = Vec::new();
+        if self.length.is_some_and(|length| last >= length) {
+            return Err(io::Error::other("Audio range exceeds file length"));
+        }
+        // Include the overrun sentinel so read_to_end need not grow a full range.
+        let mut bytes = Vec::with_capacity((last - first + 2) as usize);
         response
             .by_ref()
-            .take(HTTP_CHUNK_BYTES + 1)
+            .take(requested + 1)
             .read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > HTTP_CHUNK_BYTES {
+        if bytes.len() as u64 > requested {
             return Err(io::Error::other("Audio range exceeds requested size"));
         }
         if bytes.len() as u64 != last - first + 1
-            || ((bytes.len() as u64) < HTTP_CHUNK_BYTES && self.length != last.checked_add(1))
+            || ((bytes.len() as u64) < requested && self.length != last.checked_add(1))
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Incomplete audio range response",
             ));
         }
-        if self.blocks.len() >= 8 {
+        // Four MiB per decoder, including a prepared next song. Older seeks
+        // fetch a fresh range rather than retaining entire short recordings.
+        if self.blocks.len() >= 4 {
             self.blocks.pop_front();
         }
         self.blocks.push_back((start, bytes));
@@ -890,12 +972,51 @@ impl Read for HttpSource {
         if output.is_empty() || self.length.is_some_and(|length| self.position >= length) {
             return Ok(0);
         }
-        if let Some(file) = &mut self.fallback {
+        if self.cancelled.load(Ordering::Acquire) {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "Audio request cancelled",
+            ));
+        }
+        if let Some((file, response, cached)) = &mut self.fallback {
+            let target = self.position.saturating_add(output.len() as u64);
+            let mut buffer = [0u8; 32 * 1024];
+            while *cached < target && self.length.is_none_or(|length| *cached < length) {
+                if self.cancelled.load(Ordering::Acquire) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "Audio request cancelled",
+                    ));
+                }
+                let count = response.read(&mut buffer)?;
+                if count == 0 {
+                    if self.length.is_some_and(|length| *cached < length) {
+                        return Err(io::Error::new(
+                            io::ErrorKind::UnexpectedEof,
+                            "Incomplete audio response",
+                        ));
+                    }
+                    self.length = Some(*cached);
+                    break;
+                }
+                if *cached + count as u64 > 512 * 1024 * 1024 {
+                    return Err(io::Error::other("Audio file exceeds 512 MiB"));
+                }
+                file.seek(SeekFrom::Start(*cached))?;
+                std::io::Write::write_all(file, &buffer[..count])?;
+                *cached += count as u64;
+            }
+            file.seek(SeekFrom::Start(self.position))?;
             let count = file.read(output)?;
             self.position += count as u64;
             return Ok(count);
         }
-        let start = self.position / HTTP_CHUNK_BYTES * HTTP_CHUNK_BYTES;
+        let start = if self.position < HTTP_INITIAL_BYTES {
+            0
+        } else {
+            HTTP_INITIAL_BYTES
+                + (self.position - HTTP_INITIAL_BYTES) / HTTP_CHUNK_BYTES * HTTP_CHUNK_BYTES
+        };
         if !self.blocks.iter().any(|(at, _)| *at == start) {
             self.fetch(start)?;
         }
@@ -937,7 +1058,7 @@ impl Seek for HttpSource {
             ));
         }
         self.position = position as u64;
-        if let Some(file) = &mut self.fallback {
+        if let Some((file, _, _)) = &mut self.fallback {
             file.seek(SeekFrom::Start(self.position))?;
         }
         Ok(self.position)

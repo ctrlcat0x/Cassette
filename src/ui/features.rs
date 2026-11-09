@@ -142,38 +142,6 @@ impl Raag {
         self.radio_pending = None;
         self.prefetched_next = None;
     }
-    pub(super) fn start_mix(&mut self, cx: &mut Context<Self>) {
-        use rand::seq::SliceRandom;
-        let mut known = std::collections::HashSet::new();
-        let mut tracks: Vec<_> = self
-            .library
-            .stats
-            .top_tracks()
-            .into_iter()
-            .map(|s| s.track.clone())
-            .chain(self.library.liked.iter().cloned())
-            .chain(self.recent_tracks())
-            .chain(self.visible.iter().cloned())
-            .chain(self.library.local.iter().cloned())
-            .filter(|t| {
-                t.playable()
-                    && (!self.library.offline_only
-                        || t.kind == ItemKind::Local
-                        || self.offline.iter().any(|cached| cached.id == t.id))
-                    && !self.library.hidden.contains(&t.id)
-                    && known.insert(t.id.clone())
-            })
-            .take(60)
-            .collect();
-        tracks.shuffle(&mut rand::rng());
-        if let Some(track) = tracks.first().cloned() {
-            self.queue.replace(tracks, &track.id);
-            self.invalidate_collection();
-            self.start(track, cx);
-            self.radio_mix = true;
-            self.request_radio();
-        }
-    }
     pub(super) fn move_playlist_track(
         &mut self,
         track: &Track,
@@ -399,17 +367,18 @@ impl Raag {
             .unwrap_or_else(|| track.id.clone())
     }
     pub(super) fn collection_tools(&self, cx: &mut Context<Self>) -> Div {
-        let selected: Vec<_> = self
-            .visible
-            .iter()
-            .filter(|t| {
-                self.selecting
-                    && self
-                        .selected_rows
+        let selected: Vec<_> = if self.selecting {
+            self.visible
+                .iter()
+                .filter(|t| {
+                    self.selected_rows
                         .contains(t.set_video_id.as_deref().unwrap_or(&t.id))
-            })
-            .cloned()
-            .collect();
+                })
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
         div()
             .flex()
             .flex_wrap()
@@ -981,6 +950,13 @@ impl Raag {
             )
     }
     pub(super) fn pump_media(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(system) = &mut self.system {
+            system.update(self.selected.as_ref(), self.playing);
+        }
+        #[cfg(target_os = "windows")]
+        if let Some(taskbar) = &mut self.taskbar {
+            taskbar.update(self.selected.is_some(), self.playing);
+        }
         use souvlaki::{MediaControlEvent as E, SeekDirection};
         while let Some(event) = self.media.as_ref().and_then(|m| m.events.try_recv().ok()) {
             match event {
@@ -1029,7 +1005,7 @@ impl Raag {
                 }
                 E::Raise => crate::system::show(window, cx),
                 E::Quit => {
-                    self.backend.flush(self.snapshot());
+                    self.flush();
                     cx.quit();
                 }
                 E::OpenUri(uri) => {

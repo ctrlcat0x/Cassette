@@ -12,6 +12,8 @@ mod media;
 mod motion;
 mod service;
 mod system;
+#[cfg(target_os = "windows")]
+mod taskbar;
 mod theme;
 mod ui;
 #[cfg(feature = "allocation-profile")]
@@ -77,7 +79,6 @@ fn main() {
     application.run(move |cx| {
         gpui_kit::init(cx);
         if let Err(error) = cx.text_system().add_fonts(vec![
-            std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Inter[opsz,wght].ttf")),
             std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Manrope[wght].ttf")),
             std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/NotoSansDevanagari.ttf")),
         ]) {

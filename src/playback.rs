@@ -54,6 +54,7 @@ pub struct PlaybackEvent {
 #[derive(Clone)]
 pub struct AudioSource {
     pub url: String,
+    pub duration: f64,
     pub headers: Vec<String>,
     pub user_agent: String,
     pub quality: StreamQuality,
@@ -98,11 +99,9 @@ impl Player {
             let mut loading_track = None;
             let mut source_retried = false;
             let mut awaiting_audio = false;
-            let extractor = ytdlp.clone();
-            let warm_generation = current_generation.clone();
-            let mut resolvers = vec![thread::spawn(move || {
-                warm_extractor(&extractor, &warm_generation);
-            })];
+            let mut paused = false;
+            let mut pending_seek = None;
+            let mut resolvers = Vec::new();
             // Own one silent, connected engine from startup. First playback uses
             // this exact engine instead of initializing it after extraction.
             let mut idle = IdleAudio::start().ok();
@@ -130,7 +129,7 @@ impl Player {
                 // quickly only while audio work exists, not 100 times/sec at rest.
                 let wait = if loading_track.is_some() || awaiting_audio {
                     Duration::from_millis(10)
-                } else if session.is_none() && prepared.is_none() {
+                } else if paused || (session.is_none() && prepared.is_none()) {
                     Duration::from_millis(200)
                 } else {
                     // Commands still wake immediately. Steady playback/event
@@ -143,6 +142,8 @@ impl Player {
                             continue;
                         }
                         loading_track = Some(track.clone());
+                        paused = false;
+                        pending_seek = None;
                         awaiting_audio = true;
                         crate::cache::prioritize_playback(Duration::from_secs(35));
                         source_retried = false;
@@ -256,9 +257,25 @@ impl Player {
                         if matches!(command, PlayerCommand::Stop) {
                             fading = None;
                             loading_track = None;
+                            awaiting_audio = false;
+                            wanted_prefetch = None;
+                            pending_seek = None;
                             session = None;
                             prepared = None;
                             continue;
+                        }
+                        match command {
+                            PlayerCommand::Pause(value) => {
+                                paused = value;
+                                if value {
+                                    awaiting_audio = false;
+                                    crate::cache::prioritize_playback(Duration::ZERO);
+                                }
+                            }
+                            PlayerCommand::Seek(seconds) if seconds.is_finite() => {
+                                pending_seek = session.is_none().then_some(seconds.max(0.));
+                            }
+                            _ => {}
                         }
                         if matches!(command, PlayerCommand::Pause(_) | PlayerCommand::Seek(_)) {
                             fading = None;
@@ -296,7 +313,7 @@ impl Player {
                             source,
                             id,
                             if prefetch { 0. } else { volume },
-                            prefetch,
+                            prefetch || paused,
                             if prefetch { None } else { idle.take() },
                         )
                     });
@@ -307,6 +324,9 @@ impl Player {
                         }
                         Ok(mut ready) => {
                             configure(&mut ready.engine, &settings);
+                            if let Some(seconds) = pending_seek.take() {
+                                let _ = ready.engine.send(AudioCommand::Seek(seconds));
+                            }
                             let _ = events.send(PlaybackEvent {
                                 generation: id,
                                 event: PlayerEvent::Source(
@@ -492,49 +512,6 @@ impl IdleAudio {
     }
 }
 
-// yt-dlp's CLI cannot stay resident between extractions. Warm the executable
-// and Python imports once per path; cancel immediately if playback takes priority.
-fn warm_extractor(ytdlp: &str, generation: &AtomicU64) {
-    static WARMED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<PathBuf>>> =
-        std::sync::OnceLock::new();
-    let path = executable("yt-dlp", ytdlp);
-    {
-        let mut warmed = WARMED.get_or_init(Default::default).lock().unwrap();
-        if warmed.contains(&path) {
-            return;
-        }
-        if warmed.len() >= 16 {
-            warmed.clear();
-        }
-        warmed.insert(path.clone());
-    }
-    let mut command = Command::new(path);
-    command
-        .arg("--ignore-config")
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    hidden(&mut command);
-    let Ok(mut child) = command.spawn() else {
-        return;
-    };
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => return,
-            Ok(None) if Instant::now() < deadline && generation.load(Ordering::Acquire) == 0 => {
-                thread::sleep(Duration::from_millis(40));
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return;
-            }
-        }
-    }
-}
-
 struct PreparedAudio {
     track_id: String,
     source: AudioSource,
@@ -705,6 +682,7 @@ pub fn resolve_with_quality(
         }
         return Ok(AudioSource {
             url: path.canonicalize()?.to_string_lossy().into_owned(),
+            duration: track.duration as f64,
             headers: vec![],
             user_agent: String::new(),
             quality: StreamQuality::default(),
@@ -714,9 +692,10 @@ pub fn resolve_with_quality(
         bail!("Open this collection and choose a song to play.");
     }
     validate_video_id(&track.id)?;
-    if let Some((path, quality)) = crate::cache::cached_audio(&track.id) {
+    if let Some((path, quality, duration)) = crate::cache::cached_audio(&track.id) {
         return Ok(AudioSource {
             url: path.canonicalize()?.to_string_lossy().into_owned(),
+            duration,
             headers: vec![],
             user_agent: String::new(),
             quality,
@@ -761,22 +740,9 @@ pub fn resolve_with_quality(
         thread::spawn(move || {
             // Keep the shared permit until both providers stop, including on rapid skips.
             let _permit = permit;
-            let result =
-                crate::jiosaavn::resolve(&track, quality, id, &cancel).and_then(|source| {
-                    if let Some(source) = &source {
-                        if cancel.load(Ordering::Acquire) != id {
-                            bail!("Playback request cancelled");
-                        }
-                        if let Err(error) = validate_stream(
-                            source,
-                            deadline.min(Instant::now() + Duration::from_secs(3)),
-                        ) {
-                            crate::jiosaavn::refused(&track.id);
-                            return Err(error);
-                        }
-                    }
-                    Ok(source)
-                });
+            // The decoder or downloader validates the first range and can
+            // retry with YouTube if the signed address is rejected.
+            let result = crate::jiosaavn::resolve(&track, quality, id, &cancel);
             let _ = sender.send((false, result));
         });
     }
@@ -807,6 +773,9 @@ pub fn resolve_with_quality(
         }
     });
     let mut youtube_error = None;
+    let youtube_after = Instant::now() + Duration::from_millis(900);
+    let profile = std::env::var_os("RAAG_PROFILE_PLAYBACK").is_some();
+    let started = Instant::now();
     let result = loop {
         if generation.load(Ordering::Acquire) != id {
             break Err(anyhow::anyhow!("Playback request cancelled"));
@@ -816,13 +785,31 @@ pub fn resolve_with_quality(
                 "Audio resolution took too long. Retry playback."
             ));
         }
-        // Only extract YouTube audio after JioSaavn reports a miss or failure.
-        if !substitute_pending && let Some(job) = youtube.take() {
+        // Give a fast JioSaavn match a head start. A slow search/auth/CDN must
+        // not add its complete timeout before YouTube can even begin.
+        if (!substitute_pending || Instant::now() >= youtube_after)
+            && let Some(job) = youtube.take()
+        {
             thread::spawn(job);
         }
         match candidates.recv_timeout(Duration::from_millis(20)) {
-            Ok((_, Ok(Some(source)))) => break Ok(source),
+            Ok((_, Ok(Some(source)))) => {
+                if profile {
+                    eprintln!(
+                        "Playback source: {} in {} ms",
+                        source.quality.source,
+                        started.elapsed().as_millis()
+                    );
+                }
+                break Ok(source);
+            }
             Ok((true, Err(error))) => youtube_error = Some(error),
+            Ok((false, Err(error))) => {
+                if profile {
+                    eprintln!("JioSaavn fallback: {error:#}");
+                }
+                substitute_pending = false;
+            }
             Ok((false, _)) => substitute_pending = false,
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 break Err(anyhow::anyhow!("Audio providers stopped responding."));
@@ -949,16 +936,27 @@ pub(crate) fn source_policy(source: &AudioSource) -> &'static crate::request_pol
     }
 }
 
+/// Probes, playback and seeks share one runtime and TLS connection pool.
+pub(crate) fn stream_client() -> Result<reqwest::blocking::Client> {
+    static CLIENT: std::sync::OnceLock<Result<reqwest::blocking::Client, reqwest::Error>> =
+        std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::blocking::Client::builder()
+                .no_gzip()
+                .connect_timeout(Duration::from_secs(4))
+                .timeout(Duration::from_secs(10))
+                .pool_max_idle_per_host(2)
+                .build()
+        })
+        .as_ref()
+        .cloned()
+        .map_err(|error| anyhow::anyhow!("Audio connection setup failed: {error}"))
+}
+
 fn validate_stream(source: &AudioSource, deadline: Instant) -> Result<()> {
     source_policy(source).before()?;
-    static CLIENT: std::sync::OnceLock<reqwest::blocking::Client> = std::sync::OnceLock::new();
-    let client = CLIENT.get_or_init(|| {
-        reqwest::blocking::Client::builder()
-            .connect_timeout(Duration::from_secs(3))
-            .timeout(Duration::from_secs(6))
-            .build()
-            .expect("stream probe client")
-    });
+    let client = stream_client()?;
     let remaining = deadline.saturating_duration_since(Instant::now());
     if remaining.is_zero() {
         bail!("YouTube took too long to respond. Retry playback.");
@@ -997,7 +995,9 @@ fn validate_stream(source: &AudioSource, deadline: Instant) -> Result<()> {
             {
                 return Err(RejectedFormats.into());
             }
-            let bytes = crate::resource::read_limited(response.take(1), 1)
+            // Drain the small probe so its connection can serve the decoder.
+            // A server ignoring Range still cannot force a full media download.
+            let bytes = crate::resource::read_limited(response.take(1024), 1024)
                 .context("The audio server returned no media bytes")?;
             if bytes.is_empty() {
                 bail!("The audio server returned no media bytes");
@@ -1035,7 +1035,8 @@ fn extract_source(
     command.args([
         "--ignore-config",
         "--no-playlist",
-        "--dump-single-json",
+        "--print",
+        "%(.{url,http_headers,duration,acodec,abr,asr,protocol,vcodec})j",
         "--skip-download",
         "--no-progress",
         "--socket-timeout",
@@ -1044,8 +1045,6 @@ fn extract_source(
         "0",
         "--extractor-retries",
         "0",
-        "--sleep-requests",
-        "0.5",
         "--extractor-args",
         "youtube:player_skip=initial_data",
         "-f",
@@ -1053,12 +1052,28 @@ fn extract_source(
         "--format-sort",
         "quality,abr,asr",
     ]);
-    let deno = executable("deno", "");
-    if deno.is_file() {
+    let qjs = executable("qjs", "");
+    let _script_dir = if ytdlp.trim().is_empty() && qjs.is_file() {
+        let temp = tempfile::Builder::new()
+            .prefix("youtube-")
+            .tempdir_in(crate::library::data_dir())?;
         command
+            .arg("--no-js-runtimes")
             .arg("--js-runtimes")
-            .arg(format!("deno:{}", deno.display()));
-    }
+            .arg(format!("quickjs:{}", qjs.display()))
+            .env("TMPDIR", temp.path())
+            .env("TEMP", temp.path())
+            .env("TMP", temp.path());
+        Some(temp)
+    } else {
+        let deno = executable("deno", "");
+        if deno.is_file() {
+            command
+                .arg("--js-runtimes")
+                .arg(format!("deno:{}", deno.display()));
+        }
+        None
+    };
     let cookie_snapshot = if !cookies.trim().is_empty() {
         if !PathBuf::from(cookies).is_file() {
             bail!("The YouTube cookie file is missing. Choose it again in Settings.");
@@ -1178,6 +1193,10 @@ fn extract_source(
         .unwrap_or_default();
     let source = AudioSource {
         url,
+        duration: value["duration"]
+            .as_f64()
+            .filter(|duration| duration.is_finite() && *duration > 0.)
+            .unwrap_or(track.duration as f64),
         headers,
         user_agent,
         quality: StreamQuality {
@@ -1229,7 +1248,7 @@ pub fn extraction_error(message: &str) -> &'static str {
         || message.contains("yt-dlp-ejs")
         || message.contains("signature extraction")
     {
-        "YouTube's playback challenge could not be resolved. Update yt-dlp and Deno using the playback-tools script."
+        "YouTube's playback challenge could not be resolved. Update Cassette or your configured playback tools."
     } else if message.contains("drm protected") {
         "YouTube returned DRM-protected audio. Try another track or check your account access."
     } else if message.contains("private")
@@ -1243,7 +1262,7 @@ pub fn extraction_error(message: &str) -> &'static str {
     {
         "This track is unavailable in your region or has been removed. Try another track."
     } else {
-        "YouTube audio could not be resolved. Check your connection and update yt-dlp and Deno, then retry."
+        "YouTube audio could not be resolved. Check your connection, update the playback tools, then retry."
     }
 }
 
@@ -1375,17 +1394,18 @@ pub fn executable(name: &str, override_path: &str) -> PathBuf {
             }
         }
     }
-    let development = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(".runtime")
-        .join(&filename);
-    if name == "yt-dlp" {
-        let unpacked = development.parent().unwrap().join("yt-dlp").join(&filename);
-        if unpacked.is_file() {
-            return unpacked;
+    let development = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".runtime");
+    for directory in [development.join("extractors"), development] {
+        if name == "yt-dlp" {
+            let unpacked = directory.join("yt-dlp").join(&filename);
+            if unpacked.is_file() {
+                return unpacked;
+            }
         }
-    }
-    if development.is_file() {
-        return development;
+        let path = directory.join(&filename);
+        if path.is_file() {
+            return path;
+        }
     }
     if let Some(path) = std::env::var_os("PATH").and_then(|paths| {
         std::env::split_paths(&paths)

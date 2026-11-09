@@ -1679,9 +1679,9 @@
     "फ़ोल्डर से निकालने के लिए यहाँ छोड़ें",
     "Suelta aquí para sacar de la carpeta"
   ],
-  "Version {} · Built with Rust and GPUI · Icons by Iconoir": [
-    "संस्करण {} · Rust और GPUI से बना · Iconoir के आइकन",
-    "Versión {} · Creado con Rust y GPUI · Iconos de Iconoir"
+  "Version {} · Built with Rust and GPUI": [
+    "संस्करण {} · Rust और GPUI से बना",
+    "Versión {} · Creado con Rust y GPUI"
   ],
   "Copy music link": [
     "संगीत लिंक कॉपी करें",
@@ -1734,5 +1734,9 @@
   "Show more…": [
     "और देखें…",
     "Ver más…"
-  ]
+  ],
+  "Your local files and downloaded songs are still available.": ["आपकी लोकल फ़ाइलें और डाउनलोड किए गए गाने अभी भी उपलब्ध हैं।", "Tus archivos locales y canciones descargadas siguen disponibles."],
+  "Music could not be loaded. Refresh to try again.": ["संगीत लोड नहीं हुआ। फिर से कोशिश करने के लिए रीफ़्रेश करें।", "No se pudo cargar la música. Actualiza para intentarlo de nuevo."],
+  "No results found": ["कोई नतीजा नहीं मिला", "No se encontraron resultados"],
+  "Try another song, artist or album.": ["कोई दूसरा गाना, कलाकार या एल्बम खोजें।", "Prueba con otra canción, artista o álbum."]
 }

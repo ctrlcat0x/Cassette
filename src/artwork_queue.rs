@@ -14,7 +14,14 @@ impl PendingArtwork {
             .find(|(_, t)| t.artwork_key() == track.artwork_key())
         {
             *rank = (*rank).min(priority);
-        } else if self.pending.len() < 512 {
+        } else {
+            if self.pending.len() >= 512 {
+                if let Some(index) = self.pending.iter().rposition(|(rank, _)| *rank > priority) {
+                    self.pending.remove(index);
+                } else {
+                    return;
+                }
+            }
             self.pending.push_back((priority, track));
         }
     }

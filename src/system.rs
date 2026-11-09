@@ -12,13 +12,18 @@ use tray_icon::{
 pub enum Command {
     Show,
     TogglePlayback,
+    Previous,
+    Next,
     Quit,
     Open(raag::links::Link),
 }
 pub struct System {
-    _icon: TrayIcon,
+    icon: TrayIcon,
     events: Receiver<Command>,
-    labels: [MenuItem; 3],
+    labels: [MenuItem; 5],
+    title: MenuItem,
+    artist: MenuItem,
+    previous: Option<(String, String, bool)>,
 }
 impl System {
     pub fn new() -> Result<Self> {
@@ -27,33 +32,51 @@ impl System {
             MenuItem::with_id("cassette-show", raag::i18n::t("Open Cassette"), true, None),
             MenuItem::with_id("cassette-play", raag::i18n::t("Play / pause"), true, None),
             MenuItem::with_id("cassette-quit", raag::i18n::t("Quit Cassette"), true, None),
+            MenuItem::with_id("cassette-previous", raag::i18n::t("Previous"), false, None),
+            MenuItem::with_id("cassette-next", raag::i18n::t("Next"), false, None),
         ];
-        menu.append(&labels[0])?;
-        menu.append(&labels[1])?;
+        let title = MenuItem::new(raag::i18n::t("Nothing playing"), false, None);
+        let artist = MenuItem::new("Cassette", false, None);
+        menu.append(&title)?;
+        menu.append(&artist)?;
         menu.append(&PredefinedMenuItem::separator())?;
+        menu.append(&labels[3])?;
+        menu.append(&labels[1])?;
+        menu.append(&labels[4])?;
+        menu.append(&PredefinedMenuItem::separator())?;
+        menu.append(&labels[0])?;
         menu.append(&labels[2])?;
-        let image =
-            image::load_from_memory(include_bytes!("../assets/cassette-32.png"))?.to_rgba8();
+        let image = image::load_from_memory(if cfg!(target_os = "macos") {
+            include_bytes!("../assets/icons/menubar.png")
+        } else {
+            include_bytes!("../assets/cassette-32.png")
+        })?
+        .to_rgba8();
         let (width, height) = image.dimensions();
         let icon = Icon::from_rgba(image.into_raw(), width, height)?;
-        let icon = TrayIconBuilder::new()
+        let builder = TrayIconBuilder::new()
             .with_id("cassette")
             .with_menu(Box::new(menu))
-            .with_icon(icon)
             .with_tooltip("Cassette")
-            .with_menu_on_left_click(false)
-            .build()?;
+            .with_menu_on_left_click(cfg!(target_os = "macos"));
+        #[cfg(target_os = "macos")]
+        let builder = builder.with_icon_templated(icon);
+        #[cfg(not(target_os = "macos"))]
+        let builder = builder.with_icon(icon);
+        let icon = builder.build()?;
         let (sender, events) = mpsc::sync_channel(8);
         let clicks = sender.clone();
         TrayIconEvent::set_event_handler(Some(move |event| {
-            if matches!(
-                event,
-                TrayIconEvent::Click {
-                    button: MouseButton::Left,
-                    button_state: MouseButtonState::Up,
-                    ..
-                }
-            ) {
+            if !cfg!(target_os = "macos")
+                && matches!(
+                    event,
+                    TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    }
+                )
+            {
                 let _ = clicks.try_send(Command::Show);
             }
         }));
@@ -61,25 +84,69 @@ impl System {
             let command = match event.id.as_ref() {
                 "cassette-show" => Command::Show,
                 "cassette-play" => Command::TogglePlayback,
+                "cassette-previous" => Command::Previous,
+                "cassette-next" => Command::Next,
                 "cassette-quit" => Command::Quit,
                 _ => return,
             };
             let _ = sender.try_send(command);
         }));
         Ok(Self {
-            _icon: icon,
+            icon,
             events,
             labels,
+            title,
+            artist,
+            previous: None,
         })
     }
-    pub fn refresh_language(&self) {
-        for (item, label) in
-            self.labels
-                .iter()
-                .zip(["Open Cassette", "Play / pause", "Quit Cassette"])
-        {
+    pub fn refresh_language(&mut self) {
+        self.previous = None;
+        for (item, label) in self.labels.iter().zip([
+            "Open Cassette",
+            "Play / pause",
+            "Quit Cassette",
+            "Previous",
+            "Next",
+        ]) {
             item.set_text(raag::i18n::t(label));
         }
+    }
+    pub fn update(&mut self, track: Option<&raag::Track>, playing: bool) {
+        if self
+            .previous
+            .as_ref()
+            .is_some_and(|(title, artist, active)| {
+                title == track.map_or("", |t| t.title.as_str())
+                    && artist == track.map_or("", |t| t.artist.as_str())
+                    && *active == playing
+            })
+        {
+            return;
+        }
+        let key = (
+            track.map_or_else(String::new, |t| t.title.clone()),
+            track.map_or_else(String::new, |t| t.artist.clone()),
+            playing,
+        );
+        self.title.set_text(if key.0.is_empty() {
+            raag::i18n::t("Nothing playing")
+        } else {
+            &key.0
+        });
+        self.artist
+            .set_text(if key.1.is_empty() { "Cassette" } else { &key.1 });
+        self.labels[1].set_text(raag::i18n::t(if playing { "Pause" } else { "Play" }));
+        for item in [&self.labels[3], &self.labels[4]] {
+            item.set_enabled(track.is_some());
+        }
+        let tooltip = if track.is_some() {
+            format!("{} — {}", key.0, key.1)
+        } else {
+            "Cassette".into()
+        };
+        let _ = self.icon.set_tooltip(Some(tooltip));
+        self.previous = Some(key);
     }
     pub fn poll(&self) -> Option<Command> {
         self.events.try_recv().ok()

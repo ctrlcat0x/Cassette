@@ -12,8 +12,9 @@ impl Raag {
             .flex_col()
             .gap_2()
             .flex_shrink_0()
-            .pt_3()
+            .pt_5()
             .pb_2()
+            .min_w_0()
             .child(
                 div()
                     .text_3xl()
@@ -24,6 +25,7 @@ impl Raag {
             .child(
                 div()
                     .text_sm()
+                    .max_w(rems(48.))
                     .text_color(cx.theme().muted_foreground)
                     .child(subtitle.into()),
             )
@@ -36,7 +38,7 @@ impl Raag {
             .child(title.to_owned())
     }
     fn filter_bar(&self, cx: &mut Context<Self>) -> Div {
-        let mut row = div().flex().gap_2().flex_shrink_0();
+        let mut row = div().flex().flex_wrap().gap_2().flex_shrink_0();
         for (ix, label) in [
             t("All"),
             t("Songs"),
@@ -101,7 +103,6 @@ impl Raag {
                     .rounded_lg()
                     .when(artist, |button| button.rounded_full())
                     .cursor_pointer()
-                    .hover(|button| button.opacity(0.86))
                     .accessibility_label(format!(
                         "{} {}",
                         if track.playable() {
@@ -112,9 +113,12 @@ impl Raag {
                         track.title
                     ))
                     .child(self.cover(track, rems(extent / f32::from(cx.theme().font_size)), cx))
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.open_track(owned.clone(), cx)),
-                    ),
+                    .on_click(cx.listener(move |this, _, _, cx| this.open_track(owned.clone(), cx)))
+                    .map(|button| HoverArtwork {
+                        id: SharedString::from(format!("discover-hover-{}", track.id)),
+                        view: self.content.entity_id(),
+                        child: button.into_any_element(),
+                    }),
             )
             .child(
                 div()
@@ -256,7 +260,7 @@ impl Raag {
             .pb_8()
             .gap_7()
             .child(self.page_heading(title, subtitle, cx));
-        let mut routes = div().flex().gap_3().flex_shrink_0();
+        let mut routes = div().flex().flex_wrap().gap_2().flex_shrink_0();
         for (label, id) in [
             (t("For you"), "FEmusic_explore"),
             (t("Charts"), "FEmusic_charts"),
@@ -281,7 +285,9 @@ impl Raag {
         content = content.child(routes);
         if !self.page.destinations.is_empty() {
             let mut tiles = div().flex().flex_wrap().gap_3().flex_shrink_0();
-            let width = ((self.content_width(window) - 64. - 36.) / 4.).floor();
+            let available = (self.content_width(window) - 64.).max(160.);
+            let columns = (available / 190.).floor().clamp(1., 4.);
+            let width = ((available - (columns - 1.) * 12.) / columns).floor();
             for destination in self
                 .page
                 .destinations
