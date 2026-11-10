@@ -192,17 +192,23 @@ impl Library {
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let staging = path.with_extension("json.tmp");
         use std::io::Write;
-        let mut writer = std::io::BufWriter::new(fs::File::create(&staging)?);
-        serde_json::to_writer(&mut writer, self)?;
-        writer.flush()?;
-        writer.get_ref().sync_all()?;
-        drop(writer);
-        fs::rename(&staging, path).context("Could not save the library")
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        fs::create_dir_all(parent)?;
+        let mut staging = tempfile::NamedTempFile::new_in(parent)?;
+        {
+            let mut writer = std::io::BufWriter::new(staging.as_file_mut());
+            serde_json::to_writer(&mut writer, self)?;
+            writer.flush()?;
+        }
+        staging.as_file().sync_all()?;
+        staging
+            .persist(path)
+            .context("Could not save the library")?;
+        Ok(())
     }
 
     pub fn liked(&self, id: &str) -> bool {

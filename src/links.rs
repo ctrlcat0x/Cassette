@@ -162,6 +162,9 @@ fn metadata_matches(track: &crate::Track, title: &str, artist: &str) -> bool {
             }))
 }
 pub fn resolve_spotify(kind: &str, id: &str) -> Result<ResolvedSpotify> {
+    if crate::cache::offline_only() {
+        bail!("Offline mode is on");
+    }
     if !["track", "album", "artist", "playlist"].contains(&kind)
         || id.len() != 22
         || !id.bytes().all(|c| c.is_ascii_alphanumeric())

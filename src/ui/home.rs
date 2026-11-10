@@ -55,7 +55,7 @@ impl Raag {
             page = page
                 .child(self.home_shelf(
                     t("On repeat"),
-                    self.editorial.as_ref(),
+                    &self.editorial[..self.editorial.len().min(5)],
                     columns,
                     window,
                     cx,
@@ -195,6 +195,7 @@ impl Raag {
         }
         let carousel = div().w_full().min_w_0().overflow_hidden().child(cards);
         div()
+            .id(SharedString::from(format!("home-shelf-{key}")))
             .flex()
             .flex_col()
             .gap_4()

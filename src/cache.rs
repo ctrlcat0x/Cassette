@@ -285,7 +285,6 @@ pub fn store_audio_controlled(
     fs::create_dir_all(&directory)?;
     let mut index = read_index(&directory)?;
     let budget = BUDGET.load(std::sync::atomic::Ordering::Relaxed);
-    maintain(&directory, &mut index, budget, now(), &track.id)?;
     if let Some(entry) = index.entries.get_mut(&track.id)
         && valid(entry, &audio_path(&directory, &track.id), now())
     {

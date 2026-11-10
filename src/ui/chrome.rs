@@ -31,6 +31,7 @@ enum ChromeState {
         artwork: u64,
         suggestions: (u64, usize),
         expanded: bool,
+        compact: bool,
         focused: bool,
         busy: (bool, bool, bool),
         syncing: bool,
@@ -129,6 +130,7 @@ impl Raag {
                     artwork: self.artwork_revision,
                     suggestions: (self.suggestion_revision, self.suggestions.len()),
                     expanded: self.sidebar_expanded(window),
+                    compact: self.toolbar_compact(window),
                     focused: self.query.read(cx).focus_handle(cx).is_focused(window),
                     busy: (
                         self.auth.busy(),

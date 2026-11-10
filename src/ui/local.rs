@@ -68,18 +68,21 @@ impl Raag {
             );
             let key = key.clone();
             return body
+                .pt_7()
                 .child(
-                    Button::new("back-to-local-albums")
-                        .ghost()
-                        .icon(icon("nav-arrow-left"))
-                        .label(t("Albums"))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if this.back.last() == Some(&Screen::Local) {
-                                this.history_navigation(false, cx);
-                            } else {
-                                this.navigate(Screen::Local, cx);
-                            }
-                        })),
+                    div().flex().child(
+                        Button::new("back-to-local-albums")
+                            .ghost()
+                            .icon(icon("nav-arrow-left"))
+                            .label(t("Albums"))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if this.back.last() == Some(&Screen::Local) {
+                                    this.history_navigation(false, window, cx);
+                                } else {
+                                    this.navigate(Screen::Local, cx);
+                                }
+                            })),
+                    ),
                 )
                 .child(
                     div()
@@ -281,15 +284,7 @@ impl Raag {
                                             .iter()
                                             .skip(row * columns)
                                             .take(columns)
-                                            .enumerate()
-                                            .map(|(column, album)| {
-                                                Self::local_album_card(
-                                                    album,
-                                                    row * columns + column,
-                                                    extent,
-                                                    cx,
-                                                )
-                                            }),
+                                            .map(|album| Self::local_album_card(album, extent, cx)),
                                     )
                                 })
                                 .collect::<Vec<_>>()
@@ -302,12 +297,7 @@ impl Raag {
         .into_any_element()
     }
 
-    fn local_album_card(
-        album: &LocalAlbum,
-        index: usize,
-        extent: Pixels,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn local_album_card(album: &LocalAlbum, extent: Pixels, cx: &mut Context<Self>) -> AnyElement {
         let title = album_title(album).to_owned();
         let key = album.key.clone();
         let detail = if album.artist.is_empty() || album.artist == "Local file" {
@@ -315,7 +305,8 @@ impl Raag {
         } else {
             album.artist.clone()
         };
-        content_button(("local-album", index))
+        let id = SharedString::from(format!("local-album-{key:?}"));
+        content_button(id)
             .w(extent)
             .h(extent + ui_px(64.))
             .p_2()

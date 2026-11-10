@@ -108,7 +108,7 @@ impl Raag {
             Screen::Home
                 | Screen::Explore
                 | Screen::Discover(..)
-                | Screen::Search
+                | Screen::Search(_)
                 | Screen::Radio(_)
                 | Screen::Collection(_, _, false)
         ) {

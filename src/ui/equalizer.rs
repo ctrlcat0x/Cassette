@@ -154,7 +154,7 @@ impl Raag {
                         }
                     });
                 }).w_full().h(px(HEIGHT)))))
-            .child(div().flex().pl(px(42. + INSET)).pr(px(INSET)).children(LABELS.into_iter().enumerate().map(|(band, label)| {
+            .child(div().flex().pl(ui_px(42.) + px(INSET)).pr(px(INSET)).children(LABELS.into_iter().enumerate().map(|(band, label)| {
                 div().flex_1().min_w_0().flex().flex_col().items_center().gap_1().child(
                 Button::new(("eq-band", band)).ghost().small()
                     .selected(focused && active == band)

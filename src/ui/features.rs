@@ -118,17 +118,7 @@ impl Raag {
                                 this.query.update(cx, |input, cx| {
                                     input.set_value(query.clone(), window, cx)
                                 });
-                                this.suggestions.clear();
-                                this.suggestion_pending = None;
-                                this.suggestion_revision = this.suggestion_revision.wrapping_add(1);
-                                this.navigate(Screen::Search, cx);
-                                this.search_query = query.clone();
-                                this.search_filter = 0;
-                                this.catalog = Arc::new(vec![]);
-                                this.page = Default::default();
-                                this.scroll.reset();
-                                this.refresh_visible();
-                                this.request(|id| Request::Search(id, query.clone(), None), cx);
+                                this.submit_search(query.clone(), cx);
                                 window.focus(&this.focus, cx);
                             }))
                     }),
@@ -297,15 +287,16 @@ impl Raag {
                                         .gap_3()
                                         .child(this.cover(&entry.track, rems(2.5), cx))
                                         .child(entry.track.title)
-                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                        .on_click(cx.listener(move |this, _, window, cx| {
                                             let tracks = std::mem::take(&mut this.picker_tracks);
+                                            let mut error_notice = None;
                                             if owned.local {
                                                 for track in tracks {
                                                     if let Err(error) = this
                                                         .library
                                                         .add_to_playlist(&owned.track.id, track)
                                                     {
-                                                        this.notice = Some(error.to_string());
+                                                        error_notice = Some(error.to_string());
                                                         break;
                                                     }
                                                 }
@@ -325,7 +316,10 @@ impl Raag {
                                                     });
                                                 }
                                             }
-                                            this.history_navigation(false, cx);
+                                            this.history_navigation(false, window, cx);
+                                            if error_notice.is_some() {
+                                                this.notice = error_notice;
+                                            }
                                         }))
                                         .into_any_element()
                                     })
@@ -497,8 +491,7 @@ impl Raag {
                             {
                                 this.queue.enqueue(t.clone(), false);
                             }
-                            this.save();
-                            cx.notify();
+                            this.queue_edited(cx);
                         })),
                 )
                 .child(

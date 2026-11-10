@@ -206,6 +206,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: cassette-*
@@ -225,37 +226,17 @@ jobs:
           if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=true; latest=false; fi
           assets=(dist/cassette-windows-x64.exe dist/cassette-macos-arm64.dmg dist/cassette-linux-x64.deb)
           for asset in "${assets[@]}"; do test -s "$asset"; done
-          cat > release-notes.md <<'EOF'
-          Cassette is a native desktop music player built with Rust and GPUI.
-
-          ### Changes in v0.9
-          - Open **Your library**, choose **Local files**, then select **Add folder…** to browse your music as an album cover grid.
-          - Open a cover for its track list. **Play album** follows disc and track order when shuffle is off. The **Songs** tab shows the full local collection.
-          - Cassette reads embedded covers and looks for `cover`, `folder`, or `front` JPEG and PNG files. Use **Rescan folders** or add an existing folder again to refresh its artwork and track tags.
-
-          ### Features
-          - Browse and search YouTube Music, with optional account library sync.
-          - Play local music, manage playlists and queues, and save favourites.
-          - Synced lyrics, themes, equalizer, and system media controls.
-
-          ### Downloads
-          - **Windows x64:** `cassette-windows-x64.exe` — portable application.
-          - **macOS Apple Silicon:** `cassette-macos-arm64.dmg` — drag Cassette into Applications.
-          - **Linux x64:** `cassette-linux-x64.deb` — built on Ubuntu 24.04; install with `sudo apt install ./cassette-linux-x64.deb`.
-
-          ### Before you start
-          Audio playback is native. yt-dlp and QuickJS-NG are bundled and extracted into Cassette's private data directory on first launch. Google sign-in on Windows requires the Microsoft Edge WebView2 Runtime. macOS builds are ad-hoc signed.
-
-          All three builds pass formatting, Clippy, embedded runtime checks and packaging validation.
-          EOF
-          if [[ "$prerelease" == true ]]; then
-            printf '\nThis is a beta prerelease. Features and provider integrations may change.\n' >> release-notes.md
+          notes=".github/release-notes/${RELEASE_TAG}.md"
+          if [[ ! -s "$notes" ]]; then
+            notes="release-notes.md"
+            gh api --method POST "repos/$GH_REPO/releases/generate-notes" \
+              -f tag_name="$RELEASE_TAG" --jq .body > "$notes"
           fi
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
           else
             gh release create "$RELEASE_TAG" "${assets[@]}" --verify-tag --draft \
-              --title "Cassette $RELEASE_TAG" --notes-file release-notes.md
+              --title "Cassette $RELEASE_TAG" --notes-file "$notes"
           fi
           gh release edit "$RELEASE_TAG" --draft=false --prerelease="$prerelease" --latest="$latest" \
-            --title "Cassette $RELEASE_TAG" --notes-file release-notes.md
+            --title "Cassette $RELEASE_TAG" --notes-file "$notes"

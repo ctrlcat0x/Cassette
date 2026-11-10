@@ -168,7 +168,7 @@ enum Screen {
     Local,
     LocalSongs,
     LocalAlbum(LocalAlbumKey, String),
-    Search,
+    Search(String),
     Collection(String, String, bool),
     Discover(String, String, String),
     Radio(String),
@@ -189,7 +189,7 @@ impl Screen {
             Self::Recents => t("Recently played"),
             Self::Local | Self::LocalSongs => t("Local files"),
             Self::LocalAlbum(_, title) => title,
-            Self::Search => t("Search"),
+            Self::Search(_) => t("Search"),
             Self::Collection(_, title, _) => title,
             Self::Discover(_, _, title) => t(title),
             Self::Radio(_) => t("Song radio"),
@@ -398,7 +398,6 @@ pub struct Raag {
     suggestion_revision: u64,
     suggestion_pending: Option<(String, Instant)>,
     suggestions: Vec<String>,
-    search_query: String,
     selected: Option<Track>,
     images: Entity<crate::images::ResidentImages>,
     missing_artwork: std::rc::Rc<std::cell::RefCell<crate::artwork_queue::PendingArtwork>>,
@@ -595,18 +594,7 @@ impl Raag {
                         cx.notify();
                         return;
                     }
-                    this.suggestion_pending = None;
-                    this.suggestions.clear();
-                    this.suggestion_revision = this.suggestion_revision.wrapping_add(1);
-                    this.navigate(Screen::Search, cx);
-                    this.search_query = query.trim().to_owned();
-                    this.pagination_attempts.clear();
-                    this.search_filter = 0;
-                    this.catalog = Arc::new(vec![]);
-                    this.page = raag::catalog::Page::default();
-                    this.scroll.reset();
-                    this.refresh_visible();
-                    this.request(|id| Request::Search(id, query, None), cx);
+                    this.submit_search(query.trim().to_owned(), cx);
                     window.focus(&this.focus, cx);
                 }
             });
@@ -826,7 +814,6 @@ impl Raag {
             continuation: None,
             pagination_attempts: Default::default(),
             search_filter: 0,
-            search_query: String::new(),
             suggestion_revision: 0,
             suggestion_pending: None,
             suggestions: vec![],
@@ -875,7 +862,7 @@ impl Raag {
         match self.screen {
             Screen::Home => self.home(window, cx),
             Screen::Explore | Screen::Discover(..) => self.explore_screen(window, cx),
-            Screen::Search => self.search_screen(window, cx),
+            Screen::Search(_) => self.search_screen(window, cx),
             Screen::Collection(..) => self.collection_screen(window, cx),
             Screen::Library => self.library_screen(window, cx),
             Screen::Local | Screen::LocalSongs | Screen::LocalAlbum(..) => {
@@ -887,6 +874,12 @@ impl Raag {
             Screen::PlaylistPicker => self.playlist_picker(cx),
             _ => self.listing_screen(cx),
         }
+    }
+    fn queue_edited(&mut self, cx: &mut Context<Self>) {
+        self.prefetch_next();
+        self.save();
+        self.right_content.update(cx, |_, cx| cx.notify());
+        cx.notify();
     }
     fn save(&self) {
         if self.writable {
@@ -1351,8 +1344,12 @@ impl Raag {
                                         && known.insert(track.id.clone())
                                     {
                                         self.queue.enqueue(track, false);
+                                        panel_changed = true;
                                     }
                                 }
+                            }
+                            if panel_changed {
+                                self.save();
                             }
                             if self.radio_waiting {
                                 self.radio_waiting = false;
@@ -1382,8 +1379,10 @@ impl Raag {
                             for track in tracks {
                                 if track.playable() && known.insert(Self::row_key(&track)) {
                                     self.queue.enqueue(track, false);
+                                    panel_changed = true;
                                 }
                             }
+                            self.prefetch_next();
                             self.save();
                         }
                         Err(error)
@@ -1587,11 +1586,13 @@ impl Raag {
                             self.save();
                             if self.screen == Screen::Recap {
                                 self.content_revision += 1;
+                                changed = true;
                             }
                         }
                     }
                     self.position = position.clamp(0., self.duration.max(position));
-                    if !self.sleep_end
+                    if self.playing
+                        && !self.sleep_end
                         && self.library.audio.crossfade > 0.
                         && self.queue.repeat != Repeat::One
                         && self.duration - position <= self.library.audio.crossfade
@@ -1698,7 +1699,7 @@ impl Raag {
                 | Screen::Liked
                 | Screen::Explore
                 | Screen::Discover(..)
-                | Screen::Search
+                | Screen::Search(_)
                 | Screen::PlaylistPicker
                 | Screen::Collection(_, _, false)
         );
@@ -1735,7 +1736,7 @@ impl Raag {
         if let Some(key) = self.account_view_key() {
             self.account_read(key, true, cx);
         } else {
-            let search = self.screen == Screen::Search;
+            let search = matches!(self.screen, Screen::Search(_));
             let visitor = self.page.visitor_data.clone();
             self.request(|id| Request::More(id, token, search, visitor), cx);
         }
@@ -1840,7 +1841,7 @@ impl Raag {
             ),
             _ => self.catalog.clone(),
         };
-        if self.screen == Screen::Search && self.search_filter > 0 {
+        if matches!(self.screen, Screen::Search(_)) && self.search_filter > 0 {
             let kind = [
                 ItemKind::Song,
                 ItemKind::Song,
@@ -1903,76 +1904,78 @@ impl Raag {
             _ => {}
         }
         if self.screen != screen {
-            self.selected_rows.clear();
-            self.selecting = false;
-            self.back.push(self.screen.clone());
+            if self.screen != Screen::PlaylistPicker {
+                self.back.push(self.screen.clone());
+            }
             self.forward.clear();
-            self.screen = screen;
-            self.revision += 1;
-            self.loading = false;
-            self.continuation = None;
-            self.pagination_attempts.clear();
-            self.catalog = Arc::new(vec![]);
-            self.page = raag::catalog::Page::default();
-            self.collection_seed = None;
-            self.scroll.reset();
-            self.search_filter = 0;
-            self.notice = None;
-            self.editing_playlist = false;
-            self.playlist_editor_remote = false;
-            self.editing_description = false;
-            self.editing_smart = None;
-            self.folder_editor = false;
-            self.refresh_visible();
-            fetch_artwork(
-                self.visible.iter().take(9).cloned().collect(),
-                self.backend.events_sender.clone(),
-            );
-            if matches!(self.screen, Screen::Home | Screen::Explore) {
+            self.enter_screen(screen);
+            if matches!(
+                self.screen,
+                Screen::Home | Screen::Explore | Screen::Search(_)
+            ) || (self.signed_in() && matches!(self.screen, Screen::Library | Screen::Liked))
+            {
                 self.reload(cx);
-            }
-            if self.signed_in() && matches!(self.screen, Screen::Library | Screen::Liked) {
-                let section = if self.screen == Screen::Liked {
-                    AccountSection::Liked
-                } else {
-                    self.library_section
-                };
-                self.account_read(crate::account_sync::Key::Section(section), false, cx);
-            }
-            if self.screen == Screen::Lyrics {
-                self.load_lyrics();
             }
         }
         cx.notify();
     }
-    fn history_navigation(&mut self, forward: bool, cx: &mut Context<Self>) {
-        let next = if forward {
-            self.forward.pop()
+    fn enter_screen(&mut self, screen: Screen) {
+        if self.screen == Screen::PlaylistPicker {
+            self.picker_tracks.clear();
+        }
+        self.screen = screen;
+        self.revision += 1;
+        self.loading = false;
+        self.continuation = None;
+        self.pagination_attempts.clear();
+        self.catalog = Arc::new(vec![]);
+        self.page = Default::default();
+        self.collection_seed = None;
+        self.scroll.reset();
+        self.search_filter = 0;
+        self.selected_rows.clear();
+        self.selecting = false;
+        self.notice = None;
+        self.editing_playlist = false;
+        self.playlist_editor_remote = false;
+        self.editing_description = false;
+        self.editing_smart = None;
+        self.folder_editor = false;
+        self.refresh_visible();
+        fetch_artwork(
+            self.visible.iter().take(9).cloned().collect(),
+            self.backend.events_sender.clone(),
+        );
+    }
+    fn history_navigation(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let (from, to) = if forward {
+            (&mut self.forward, &mut self.back)
         } else {
-            self.back.pop()
+            (&mut self.back, &mut self.forward)
         };
-        if let Some(screen) = next {
-            if forward {
-                self.back.push(self.screen.clone());
-            } else {
-                self.forward.push(self.screen.clone());
+        if let Some(screen) = from.pop() {
+            if self.screen != Screen::PlaylistPicker {
+                to.push(self.screen.clone());
             }
-            self.screen = screen;
-            self.revision += 1;
-            self.loading = false;
-            self.catalog = Arc::new(vec![]);
-            self.editing_playlist = false;
-            self.playlist_editor_remote = false;
-            self.editing_description = false;
-            self.continuation = None;
-            self.pagination_attempts.clear();
-            self.notice = None;
-            self.page = raag::catalog::Page::default();
-            self.collection_seed = None;
-            self.scroll.reset();
-            self.refresh_visible();
+            if let Screen::Search(query) = &screen {
+                self.query
+                    .update(cx, |input, cx| input.set_value(query.clone(), window, cx));
+            }
+            self.enter_screen(screen);
             self.reload(cx);
             cx.notify();
+        }
+    }
+    fn submit_search(&mut self, query: String, cx: &mut Context<Self>) {
+        self.suggestions.clear();
+        self.suggestion_pending = None;
+        self.suggestion_revision = self.suggestion_revision.wrapping_add(1);
+        let screen = Screen::Search(query);
+        if self.screen == screen {
+            self.enter_screen(screen);
+            self.reload(cx);
+        } else {
+            self.navigate(screen, cx);
         }
     }
     fn reload(&mut self, cx: &mut Context<Self>) {
@@ -1993,8 +1996,7 @@ impl Raag {
         match self.screen.clone() {
             Screen::Home => self.request(Request::Home, cx),
             Screen::Explore => self.request(Request::Explore, cx),
-            Screen::Search => {
-                let query = self.search_query.clone();
+            Screen::Search(query) => {
                 self.request(|id| Request::Search(id, query, None), cx);
             }
             Screen::Radio(id) => self.request(|generation| Request::Radio(generation, id), cx),
@@ -2138,6 +2140,7 @@ impl Raag {
         } else if self.buffering {
             self.player.command(PlayerCommand::Stop);
             self.buffering = false;
+            self.playing = false;
             self.failed = true;
             cx.notify();
         } else if self.failed {
@@ -2268,15 +2271,29 @@ impl Raag {
             16.
         }
     }
+    fn toolbar_compact(&self, window: &Window) -> bool {
+        let left = if self.sidebar_expanded(window) {
+            ui_px(268.)
+        } else {
+            px(0.)
+        };
+        let right = if self.panel.is_some() {
+            rems(self.right_sidebar_rems(window)).to_pixels(window.rem_size()) + ui_px(12.)
+        } else {
+            px(0.)
+        };
+        window.bounds().size.width - left - right - ui_px(24.) < ui_px(540.)
+    }
     fn content_width(&self, window: &Window) -> f32 {
-        let [left, right, _] = self.shell_motion.dimensions();
-        let left = left + 12. * (left / (256. * raag::i18n::scale())).clamp(0., 1.);
-        (f32::from(window.bounds().size.width) - 24. - left - right).max(0.)
+        let [left, right] = self.shell_motion.dimensions();
+        let left =
+            left + f32::from(ui_px(12.)) * (left / (256. * raag::i18n::scale())).clamp(0., 1.);
+        (f32::from(window.bounds().size.width) - f32::from(ui_px(24.)) - left - right).max(0.)
     }
     /// Density changes with the window, not with transient pane visibility.
     fn layout_width(&self, window: &Window) -> f32 {
-        let right =
-            f32::from(rems(self.right_sidebar_rems(window)).to_pixels(window.rem_size())) + 12.;
+        let right = f32::from(rems(self.right_sidebar_rems(window)).to_pixels(window.rem_size()))
+            + f32::from(ui_px(12.));
         (f32::from(window.bounds().size.width) / self.library.ui_scale
             - 24.
             - 268.
@@ -2752,6 +2769,7 @@ impl Raag {
                 .into_any_element();
         };
         let arrived = self.artwork_arrival(track);
+        let image_key = SharedString::from(format!("cover-image-{}", track.id));
         let elapsed = arrived
             .map(|time| time.elapsed().as_secs_f32())
             .unwrap_or(1.);
@@ -2768,16 +2786,17 @@ impl Raag {
                 .child(crate::images::picture_keyed(
                     sharp,
                     self.images.clone(),
-                    SharedString::from(format!("cover-image-{}", track.id)),
+                    image_key,
                     radius,
                 ))
                 .into_any_element();
         }
+        let images = self.images.clone();
         container
             .with_animation(
                 SharedString::from(format!("art-reveal-{}-{}", track.id, path.display())),
                 Animation::new(Duration::from_millis(260)),
-                move |div, _| {
+                move |cover, _| {
                     // Arrival time survives reparenting and bounds changes.
                     let phase = crate::motion::ease_out()(
                         arrived
@@ -2785,8 +2804,16 @@ impl Raag {
                             .unwrap_or(1.)
                             .min(1.),
                     );
-                    div.child(div_placeholder(placeholder.clone(), 1., radius))
-                        .child(div_placeholder(sharp.clone().into(), phase, radius))
+                    cover
+                        .child(div_placeholder(placeholder.clone(), 1., radius))
+                        .child(div().absolute().inset_0().opacity(phase).child(
+                            crate::images::picture_keyed(
+                                sharp.clone(),
+                                images.clone(),
+                                image_key.clone(),
+                                radius,
+                            ),
+                        ))
                 },
             )
             .into_any_element()
@@ -2915,22 +2942,22 @@ impl Raag {
             .as_ref()
             .and_then(|a| a.name.chars().next())
             .map_or_else(|| "C".into(), |c| c.to_uppercase().to_string());
-        gpui_kit::div()
+        let compact = self.toolbar_compact(window);
+        div()
             .flex()
             .items_center()
             .justify_between()
             .w_full()
             .h(ui_px(72.))
-            .px_8()
-            .gap_4()
+            .when(compact, |bar| bar.px_2().gap_2())
+            .when(!compact, |bar| bar.px_8().gap_4())
             .flex_shrink_0()
             .child(
                 gpui_kit::div()
                     .flex()
                     .items_center()
-                    .flex_1()
-                    .min_w(ui_px(108.))
-                    .gap_1()
+                    .when(compact, |side| side.flex_shrink_0())
+                    .when(!compact, |side| side.flex_1().min_w(ui_px(108.)).gap_1())
                     .child(
                         Button::new("toggle-sidebar")
                             .ghost()
@@ -2950,9 +2977,9 @@ impl Raag {
                             .tooltip(t("Back · Alt+Left"))
                             .accessibility_label(t("Back"))
                             .disabled(self.back.is_empty())
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.history_navigation(false, cx)),
-                            ),
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.history_navigation(false, window, cx)
+                            })),
                     )
                     .child(
                         Button::new("forward")
@@ -2961,16 +2988,17 @@ impl Raag {
                             .tooltip(t("Forward"))
                             .accessibility_label(t("Forward"))
                             .disabled(self.forward.is_empty())
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.history_navigation(true, cx)),
-                            ),
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.history_navigation(true, window, cx)
+                            })),
                     ),
             )
             .child(
                 gpui_kit::div()
                     .flex()
                     .items_center()
-                    .w(relative(0.55))
+                    .when(compact, |search| search.flex_1())
+                    .when(!compact, |search| search.w(relative(0.55)))
                     .max_w(rems(32.))
                     .min_w_0()
                     .child(
@@ -3001,8 +3029,8 @@ impl Raag {
                     .flex()
                     .items_center()
                     .justify_end()
-                    .flex_1()
-                    .min_w(ui_px(108.))
+                    .when(compact, |side| side.flex_shrink_0())
+                    .when(!compact, |side| side.flex_1().min_w(ui_px(108.)))
                     .child(
                         Button::new("profile")
                             .ghost()
@@ -4011,9 +4039,8 @@ impl Raag {
                                 }
                                 if command != 2 {
                                     this.invalidate_collection();
-                                    this.save();
+                                    this.queue_edited(cx);
                                 }
-                                this.right_content.update(cx, |_, cx| cx.notify());
                                 self_refresh(this, cx);
                             });
                         },
@@ -4201,11 +4228,11 @@ impl Raag {
                     "Download a song or collection from its menu. Recently cached songs also appear here.",
                 ),
             ),
-            Screen::Search if !self.search_query.trim().is_empty() => (
+            Screen::Search(ref query) if !query.is_empty() => (
                 t("No results found"),
                 t("Try another song, artist or album."),
             ),
-            Screen::Search => (
+            Screen::Search(_) => (
                 t("Find your next favourite."),
                 t("Search songs, artists, albums and playlists above."),
             ),
@@ -4227,7 +4254,7 @@ impl Raag {
                     Screen::Liked => "heart",
                     Screen::LocalSongs | Screen::LocalAlbum(..) => "folder",
                     Screen::Offline => "download",
-                    Screen::Search => "search",
+                    Screen::Search(_) => "search",
                     Screen::Queue => "now-playing",
                     _ => "music-double-note",
                 })
@@ -4328,63 +4355,20 @@ impl Raag {
         if self.screen == Screen::Offline {
             body = body.child(self.offline_controls(cx));
         }
-        let mut actions = gpui_kit::div().flex().items_center().gap_2();
-        if self.screen == Screen::Search {
-            for (ix, label) in [
-                t("All"),
-                t("Songs"),
-                t("Albums"),
-                t("Artists"),
-                t("Playlists"),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                actions = actions.child(
-                    Button::new(("filter", ix))
-                        .ghost()
-                        .label(label)
-                        .selected(self.search_filter == ix)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.search_filter = ix;
-                            let query = this.query.read(cx).value().to_string();
-                            let filter = if ix == 0 {
-                                None
-                            } else {
-                                Some(
-                                    [
-                                        ItemKind::Song,
-                                        ItemKind::Song,
-                                        ItemKind::Album,
-                                        ItemKind::Artist,
-                                        ItemKind::Playlist,
-                                    ][ix]
-                                        .clone(),
-                                )
-                            };
-                            this.catalog = Arc::new(vec![]);
-                            this.refresh_visible();
-                            this.request(|id| Request::Search(id, query, filter), cx);
-                        })),
-                );
-            }
-        } else {
-            actions = actions.child(
-                Button::new("play-list")
-                    .primary()
-                    .map(playback_depth)
-                    .icon(icon("play"))
-                    .label(t("Play"))
-                    .disabled(!self.visible.iter().any(|track| track.playable()))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        if let Some(track) =
-                            this.visible.iter().find(|track| track.playable()).cloned()
-                        {
-                            this.open_track(track, cx);
-                        }
-                    })),
-            );
-        }
+        let mut actions = div().flex().items_center().gap_2().child(
+            Button::new("play-list")
+                .primary()
+                .map(playback_depth)
+                .icon(icon("play"))
+                .label(t("Play"))
+                .disabled(!self.visible.iter().any(Track::playable))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if let Some(track) = this.visible.iter().find(|track| track.playable()).cloned()
+                    {
+                        this.open_track(track, cx);
+                    }
+                })),
+        );
         if self.screen == Screen::Queue {
             actions = actions.child(
                 Button::new("clear-upcoming")
@@ -4457,7 +4441,7 @@ impl Raag {
                 );
         }
         if !self.visible.is_empty()
-            || matches!(self.screen, Screen::Collection(..) | Screen::Search)
+            || matches!(self.screen, Screen::Collection(..) | Screen::Search(_))
         {
             body = body.child(actions);
         }
@@ -4662,16 +4646,12 @@ impl Raag {
                         cx.notify();
                     })),
             );
-        if crate::motion::reduce_motion(cx) || !window.is_window_active() {
-            return notice.into_any_element();
-        }
-        notice
-            .with_animation(
-                "status-notice",
-                Animation::new(Duration::from_millis(140)).with_easing(crate::motion::ease_out()),
-                |notice, phase| notice.opacity(0.75 + 0.25 * phase),
-            )
-            .into_any_element()
+        crate::motion::fade_in(
+            notice,
+            SharedString::from(format!("status-notice-{message}")),
+            window.is_window_active(),
+            cx,
+        )
     }
     fn set_start_at_login(&mut self, enabled: bool, cx: &mut Context<Self>) {
         if self.startup_busy {
@@ -4811,8 +4791,8 @@ impl Raag {
                 .icon(icon(if self.advanced_settings { "nav-arrow-down" } else { "nav-arrow-right" }))
                 .label(t("Advanced"))
                 .on_click(cx.listener(|this, _, _, cx| { this.advanced_settings = !this.advanced_settings; this.content_revision += 1; cx.notify(); })))
-            .when(self.advanced_settings, |section| section.child(
-                div().flex().flex_col().gap_4().pl_3()
+            .when(self.advanced_settings, |section| {
+                let content = div().flex().flex_col().gap_4().pl_3()
                     .child(div().text_sm().text_color(cx.theme().muted_foreground).child(t("Playback tools are detected automatically. Change paths only when using a custom installation.")))
                     .child(div().flex().flex_col().gap_2().text_sm().child(t("yt-dlp executable")).child(Input::new(&self.ytdlp_path)))
                     .child(div().child(Button::new("save-tools").label(t("Apply paths")).on_click(cx.listener(|this, _, _, cx| {
@@ -4823,7 +4803,14 @@ impl Raag {
                     .child(div().flex().flex_wrap().gap_2()
                         .child(Button::new("choose-cookies").ghost().label(t("Import cookies…")).disabled(self.auth.busy())
                             .on_click(cx.listener(|this, _, _, cx| this.choose_cookies(cx))))
-                        .child(Button::new("cookie-help").ghost().label(t("Cookie import help")).on_click(|_, _, cx| cx.open_url("https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies"))))))
+                        .child(Button::new("cookie-help").ghost().label(t("Cookie import help")).on_click(|_, _, cx| cx.open_url("https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies"))));
+                section.child(crate::motion::fade_in(
+                    content,
+                    "advanced-settings-content",
+                    window.is_window_active(),
+                    cx,
+                ))
+            })
         };
         let mut tabs = div().flex().flex_wrap().gap_1().pb_2();
         for (index, label) in [
@@ -5007,7 +4994,8 @@ impl Render for Raag {
         let expanded = self.sidebar_expanded(window);
         let bottom = self.selected.is_some() && !expanded;
         let right_target = if self.panel.is_some() {
-            f32::from(rems(self.right_sidebar_rems(window)).to_pixels(window.rem_size())) + 12.
+            f32::from(rems(self.right_sidebar_rems(window)).to_pixels(window.rem_size()))
+                + f32::from(ui_px(12.))
         } else {
             0.
         };
@@ -5019,16 +5007,11 @@ impl Render for Raag {
                     0.
                 },
                 right_target,
-                if bottom {
-                    80. * raag::i18n::scale()
-                } else {
-                    0.
-                },
             ],
             crate::motion::reduce_motion(cx) || !window.is_window_active(),
             Instant::now(),
         );
-        let [left_width, right_width, player_height] = self.shell_motion.dimensions();
+        let [left_width, right_width] = self.shell_motion.dimensions();
         self.images.update(cx, |cache, _| {
             if left_width == 0. {
                 cache.release_view(self.navigation.entity_id(), window);
@@ -5107,7 +5090,10 @@ impl Render for Raag {
                     input.focus(window, cx);
                 });
             }))
-            .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
+            .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
+                this.shell_motion.snap_next();
+                this.toggle_sidebar(cx);
+            }))
             .on_action(cx.listener(|this, _: &SignIn, _, cx| this.sign_in(cx)))
             .on_action(cx.listener(|this, _: &SignOut, _, cx| this.sign_out(cx)))
             .on_action(cx.listener(|this, _: &CancelSignIn, _, cx| {
@@ -5130,10 +5116,18 @@ impl Render for Raag {
             .on_action(
                 cx.listener(|this, _: &ShowRecent, _, cx| this.navigate(Screen::Recents, cx)),
             )
-            .on_action(cx.listener(|this, _: &ShowQueue, _, cx| this.navigate(Screen::Queue, cx)))
-            .on_action(cx.listener(|this, _: &ShowLyrics, _, cx| this.navigate(Screen::Lyrics, cx)))
+            .on_action(cx.listener(|this, _: &ShowQueue, _, cx| {
+                this.shell_motion.snap_next();
+                this.toggle_panel(Panel::Queue, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ShowLyrics, _, cx| {
+                this.shell_motion.snap_next();
+                this.toggle_panel(Panel::Lyrics, cx);
+            }))
             .on_action(cx.listener(|this, _: &GoHome, _, cx| this.navigate(Screen::Home, cx)))
-            .on_action(cx.listener(|this, _: &GoBack, _, cx| this.history_navigation(false, cx)))
+            .on_action(cx.listener(|this, _: &GoBack, window, cx| {
+                this.history_navigation(false, window, cx)
+            }))
             .on_action(cx.listener(|this, _: &CloseOverlay, window, cx| {
                 if this.immersive {
                     this.exit_immersive(window, cx);
@@ -5144,6 +5138,7 @@ impl Render for Raag {
                 }
                 this.editing_playlist = false;
                 if this.panel.take().is_some() {
+                    this.shell_motion.snap_next();
                     this.content_revision += 1;
                     cx.notify();
                 } else {
@@ -5203,9 +5198,8 @@ impl Render for Raag {
                             .h_full()
                             .flex_shrink_0()
                             .overflow_hidden()
-                            .mr(px(
-                                12. * (left_width / (256. * raag::i18n::scale())).clamp(0., 1.)
-                            ))
+                            .mr(px(f32::from(ui_px(12.))
+                                * (left_width / (256. * raag::i18n::scale())).clamp(0., 1.)))
                             .min_w_0()
                             .w(px(left_width))
                             .when(left_width > 0., |pane| {
@@ -5307,24 +5301,16 @@ impl Render for Raag {
                             .w(px(right_width.max(0.))),
                     ),
             )
-            .child(
-                gpui_kit::div()
-                    .w_full()
-                    .flex_shrink_0()
-                    .overflow_hidden()
-                    // Padding belongs to the clipped inner content. Putting it on
-                    // this shrinking box imposes an 8px floor, then a late jump.
-                    .when(bottom && player_height > 0.1, |div| {
-                        div.child(
-                            gpui_kit::div()
-                                .h(ui_px(80.))
-                                .pt_2()
-                                .child(self.bottom_player(window, cx)),
-                        )
-                    })
-                    .min_h_0()
-                    .h(px(player_height.max(0.))),
-            )
+            .when(bottom, |shell| {
+                shell.child(
+                    div()
+                        .w_full()
+                        .h(ui_px(80.))
+                        .flex_shrink_0()
+                        .pt_2()
+                        .child(self.bottom_player(window, cx)),
+                )
+            })
             .into_any_element();
         image_cache(self.images.clone())
             .size_full()

@@ -21,6 +21,24 @@ pub(crate) fn ease_out() -> impl Fn(f32) -> f32 {
     gpui_kit::base::animation::cubic_bezier(0.23, 1., 0.32, 1.)
 }
 
+pub(crate) fn fade_in(
+    element: Div,
+    id: impl Into<ElementId>,
+    active: bool,
+    cx: &App,
+) -> AnyElement {
+    if !active || reduce_motion(cx) {
+        return element.into_any_element();
+    }
+    element
+        .with_animation(
+            id,
+            Animation::new(std::time::Duration::from_millis(140)).with_easing(ease_out()),
+            |element, phase| element.opacity(0.75 + 0.25 * phase),
+        )
+        .into_any_element()
+}
+
 #[derive(Default)]
 struct Travel {
     target: f32,
@@ -314,14 +332,16 @@ fn spring(current: f32, velocity: f32, target: f32, seconds: f32) -> (f32, f32) 
 /// Independent, critically damped channels preserve velocity on interruption.
 /// Shell edges and the center viewport consume the same sampled geometry.
 pub(crate) struct ShellMotion {
-    states: [SpringState; 3],
-    targets: [f32; 3],
+    snap_next: bool,
+    states: [SpringState; 2],
+    targets: [f32; 2],
     sampled: Instant,
 }
 impl ShellMotion {
     pub(crate) fn new(expanded: bool) -> Self {
-        let targets = [if expanded { 256. } else { 0. }, 0., 0.];
+        let targets = [if expanded { 256. } else { 0. }, 0.];
         Self {
+            snap_next: false,
             states: targets.map(|position| SpringState {
                 position,
                 velocity: 0.,
@@ -330,16 +350,20 @@ impl ShellMotion {
             sampled: Instant::now(),
         }
     }
-    pub(crate) fn dimensions(&self) -> [f32; 3] {
+    pub(crate) fn snap_next(&mut self) {
+        self.snap_next = true;
+    }
+    pub(crate) fn dimensions(&self) -> [f32; 2] {
         // Reuse cached page paint when the remaining movement is subpixel.
         // Simulation keeps full precision so interruptions preserve velocity.
         self.states
             .map(|state| (state.position.max(0.) * 2.).round() / 2.)
     }
-    pub(crate) fn sample(&mut self, targets: [f32; 3], reduced: bool, now: Instant) -> bool {
+    pub(crate) fn sample(&mut self, targets: [f32; 2], reduced: bool, now: Instant) -> bool {
         let seconds = now.duration_since(self.sampled).as_secs_f32();
         self.sampled = now;
         let config = SpringConfig::new(625., 50., 1.);
+        let reduced = reduced | std::mem::take(&mut self.snap_next);
         let mut running = false;
         for (index, target) in targets.into_iter().enumerate() {
             // Advance the previous destination before applying a new one.

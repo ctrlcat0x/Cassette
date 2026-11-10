@@ -187,8 +187,8 @@ pub fn apply(
         c.title_bar_border = c.sidebar_border;
         c.slider_bar = c.primary;
         c.slider_thumb = c.foreground;
-        c.switch = c.primary;
-        c.switch_thumb = c.primary_foreground;
+        c.switch = c.muted_foreground.opacity(0.30);
+        c.switch_thumb = c.foreground;
         c.selection = c.primary.opacity(0.25);
         c.link = c.primary;
         c.link_hover = c.primary;

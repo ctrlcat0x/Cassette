@@ -61,9 +61,11 @@ impl Raag {
         row
     }
     fn filter_search(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Screen::Search(query) = self.screen.clone() else {
+            return;
+        };
         self.search_filter = ix;
         self.pagination_attempts.clear();
-        let query = self.search_query.clone();
         let kind = match ix {
             1 => Some(ItemKind::Song),
             2 => Some(ItemKind::Album),
@@ -448,7 +450,10 @@ impl Raag {
             .when(self.loading, |div| div.child(t("Loading more…")))
     }
     pub(super) fn search_screen(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
-        let heading = tr!("Results for “{}”", self.search_query);
+        let Screen::Search(query) = &self.screen else {
+            return div().into_any_element();
+        };
+        let heading = tr!("Results for “{}”", query);
         let header = self.page_heading(heading, t("Songs, albums and the people behind them."), cx);
         if self.search_filter > 0 {
             let mut body = div()
@@ -1215,7 +1220,7 @@ impl Raag {
                 .into_any_element();
         }
         let images = self.images.clone();
-        let key = SharedString::from(format!("hero-reveal-image-{}", track.id));
+        let key = SharedString::from(format!("hero-image-{}", track.id));
         picture
             .with_animation(
                 SharedString::from(format!("hero-reveal-{}", track.id)),

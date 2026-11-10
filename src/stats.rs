@@ -87,7 +87,7 @@ impl ListeningStats {
     }
     pub fn ranking(&self, artist: bool) -> Vec<(String, f64)> {
         let mut totals = HashMap::<String, (String, f64, u64)>::new();
-        for entry in self.tracks.values() {
+        for entry in self.tracks.values().filter(|entry| entry.seconds > 0.) {
             if artist && !entry.track.artists.is_empty() {
                 let mut seen = std::collections::HashSet::new();
                 for reference in &entry.track.artists {
@@ -119,7 +119,7 @@ impl ListeningStats {
             } else {
                 &entry.track.album
             };
-            if !label.is_empty() && entry.seconds > 0. {
+            if !label.is_empty() {
                 let total = totals
                     .entry(format!("name:{label}"))
                     .or_insert_with(|| (label.clone(), 0., entry.last_played));

@@ -293,8 +293,7 @@ impl Raag {
                 .accessibility_label(t("Remove from queue"))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.queue.remove_at(ix);
-                    this.right_content.update(cx, |_, cx| cx.notify());
-                    cx.notify();
+                    this.queue_edited(cx);
                 })),
             );
         } else {
@@ -311,8 +310,7 @@ impl Raag {
                 .accessibility_label(t("Add to queue"))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.queue.enqueue(queued.clone(), false);
-                    this.right_content.update(cx, |_, cx| cx.notify());
-                    cx.notify();
+                    this.queue_edited(cx);
                 })),
             );
         }
