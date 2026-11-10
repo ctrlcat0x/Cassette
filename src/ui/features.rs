@@ -353,16 +353,8 @@ impl Raag {
             )
             .into_any_element()
     }
-    pub(super) fn choose_destination(
-        &mut self,
-        tracks: Vec<Track>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn choose_destination(&mut self, tracks: Vec<Track>, cx: &mut Context<Self>) {
         self.picker_tracks = tracks;
-        self.browse_filter.clear();
-        self.browse_query
-            .update(cx, |input, cx| input.set_value("", window, cx));
         self.navigate(Screen::PlaylistPicker, cx);
         if self.signed_in() {
             self.account_read(
@@ -371,6 +363,20 @@ impl Raag {
                 cx,
             );
         }
+    }
+
+    pub(super) fn clear_browse_filter(&mut self, cx: &mut Context<Self>) {
+        if self.browse_filter.is_empty() {
+            return;
+        }
+        self.browse_filter.clear();
+        let window = self.window;
+        let query = self.browse_query.clone();
+        cx.defer(move |cx| {
+            let _ = window.update(cx, |_, window, cx| {
+                query.update(cx, |input, cx| input.set_value("", window, cx));
+            });
+        });
     }
     pub(super) fn filter_and_sort(&self, tracks: &mut Vec<Track>) {
         crate::service::filter_tracks(tracks, &self.browse_filter, self.browse_sort);
@@ -436,9 +442,8 @@ impl Raag {
                         .icon(icon("xmark"))
                         .tooltip(t("Clear filter"))
                         .accessibility_label(t("Clear filter"))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.browse_filter.clear();
-                            this.browse_query.update(cx, |input, cx| input.set_value("", window, cx));
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.clear_browse_filter(cx);
                             this.scroll.reset();
                             this.refresh_visible();
                             cx.notify();
@@ -501,14 +506,14 @@ impl Raag {
                         .ghost()
                         .label(t("Add to playlist…"))
                         .disabled(selected.is_empty())
-                        .on_click(cx.listener(|this, _, window, cx| {
+                        .on_click(cx.listener(|this, _, _, cx| {
                             let tracks = this
                                 .visible
                                 .iter()
                                 .filter(|t| this.selected_rows.contains(&Self::row_key(t)))
                                 .cloned()
                                 .collect();
-                            this.choose_destination(tracks, window, cx);
+                            this.choose_destination(tracks, cx);
                         })),
                 )
                 .child(

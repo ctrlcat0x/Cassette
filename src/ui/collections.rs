@@ -563,8 +563,10 @@ impl Raag {
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if this.library_section != tab {
                                 this.library_section = tab;
+                                this.clear_browse_filter(cx);
                                 this.pagination_attempts.clear();
                                 this.scroll.reset();
+                                this.refresh_visible();
                                 this.account_read(Key::Section(tab), false, cx);
                             }
                         })),

@@ -290,6 +290,7 @@ impl Render for NavigationPane {
     }
 }
 pub struct Raag {
+    window: AnyWindowHandle,
     screen: Screen,
     content: Entity<ContentPane>,
     right_content: Entity<RightPane>,
@@ -718,6 +719,7 @@ impl Raag {
             }
         });
         Self {
+            window: window.window_handle(),
             screen: Screen::Home,
             content,
             right_content,
@@ -1116,6 +1118,7 @@ impl Raag {
             self.page = Default::default();
             self.collection_seed = None;
             self.screen = Screen::Home;
+            self.clear_browse_filter(cx);
             self.back.clear();
             self.forward.clear();
             self.continuation = None;
@@ -1983,7 +1986,7 @@ impl Raag {
                 self.back.push(self.screen.clone());
             }
             self.forward.clear();
-            self.enter_screen(screen);
+            self.enter_screen(screen, cx);
             if matches!(
                 self.screen,
                 Screen::Home | Screen::Explore | Screen::Search(_)
@@ -1994,11 +1997,12 @@ impl Raag {
         }
         cx.notify();
     }
-    fn enter_screen(&mut self, screen: Screen) {
+    fn enter_screen(&mut self, screen: Screen, cx: &mut Context<Self>) {
         if self.screen == Screen::PlaylistPicker {
             self.picker_tracks.clear();
         }
         self.screen = screen;
+        self.clear_browse_filter(cx);
         self.revision += 1;
         self.loading = false;
         self.continuation = None;
@@ -2036,7 +2040,7 @@ impl Raag {
                 self.query
                     .update(cx, |input, cx| input.set_value(query.clone(), window, cx));
             }
-            self.enter_screen(screen);
+            self.enter_screen(screen, cx);
             self.reload(cx);
             cx.notify();
         }
@@ -2047,7 +2051,7 @@ impl Raag {
         self.suggestion_revision = self.suggestion_revision.wrapping_add(1);
         let screen = Screen::Search(query);
         if self.screen == screen {
-            self.enter_screen(screen);
+            self.enter_screen(screen, cx);
             self.reload(cx);
         } else {
             self.navigate(screen, cx);
@@ -4285,9 +4289,9 @@ impl Raag {
                     menu =
                         menu.separator()
                             .item(PopupMenuItem::new(t("Add to playlist…")).on_click(
-                                move |_, window, cx| {
+                                move |_, _, cx| {
                                     let _ = owner.update(cx, |this, cx| {
-                                        this.choose_destination(vec![track.clone()], window, cx)
+                                        this.choose_destination(vec![track.clone()], cx)
                                     });
                                 },
                             ));

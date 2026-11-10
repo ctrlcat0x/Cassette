@@ -322,10 +322,7 @@ impl Raag {
                             .child(detail),
                     ),
             )
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.browse_filter.clear();
-                this.browse_query
-                    .update(cx, |input, cx| input.set_value("", window, cx));
+            .on_click(cx.listener(move |this, _, _, cx| {
                 this.navigate(Screen::LocalAlbum(key.clone(), title.clone()), cx);
             }))
             .into_any_element()
