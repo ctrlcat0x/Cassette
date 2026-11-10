@@ -39,16 +39,17 @@ impl Raag {
     }
     fn filter_bar(&self, cx: &mut Context<Self>) -> Div {
         let mut row = div().flex().flex_wrap().gap_2().flex_shrink_0();
-        for (ix, label) in [
+        let labels = [
             t("All"),
             t("Songs"),
             t("Albums"),
             t("Artists"),
             t("Playlists"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
+        ];
+        for (ix, label) in labels.into_iter().enumerate() {
+            if self.library.offline_only && ix > 1 {
+                break;
+            }
             row = row.child(
                 Button::new(("search-kind", ix))
                     .ghost()
@@ -75,9 +76,14 @@ impl Raag {
         };
         self.catalog = Arc::new(vec![]);
         self.page = raag::catalog::Page::default();
+        self.continuation = None;
         self.refresh_visible();
         self.scroll.reset();
-        self.request(|id| Request::Search(id, query, kind), cx);
+        if self.library.offline_only {
+            cx.notify();
+        } else {
+            self.request(|id| Request::Search(id, query, kind), cx);
+        }
     }
     pub(super) fn gallery_geometry(&self, window: &Window) -> (usize, f32) {
         let width = (self.content_width(window) - 64.).max(280.);
@@ -454,7 +460,12 @@ impl Raag {
             return div().into_any_element();
         };
         let heading = tr!("Results for “{}”", query);
-        let header = self.page_heading(heading, t("Songs, albums and the people behind them."), cx);
+        let subtitle = if self.library.offline_only {
+            t("Local files and cached songs on this device.")
+        } else {
+            t("Results from YouTube Music and your local files.")
+        };
+        let header = self.page_heading(heading, subtitle, cx);
         if self.search_filter > 0 {
             let mut body = div()
                 .flex()
@@ -579,7 +590,13 @@ impl Raag {
                     .child(self.card_grid(&tracks, 3, extent, cx)),
             );
         }
-        body = body.child(upper);
+        if self
+            .visible
+            .iter()
+            .any(|track| matches!(track.kind, ItemKind::Artist | ItemKind::Album))
+        {
+            body = body.child(upper);
+        }
         let songs: Vec<_> = self
             .visible
             .iter()
@@ -654,7 +671,13 @@ impl Raag {
             previewed.extend(
                 self.visible
                     .iter()
-                    .filter(|track| track.kind == kind)
+                    .filter(|track| {
+                        if kind == ItemKind::Song {
+                            track.playable()
+                        } else {
+                            track.kind == kind
+                        }
+                    })
                     .take(limit)
                     .map(|track| track.id.as_str()),
             );
@@ -777,12 +800,10 @@ impl Raag {
                     } else {
                         t("Play")
                     })
-                    .disabled(!self.visible.iter().any(Track::playable))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        if let Some(track) = this.visible.iter().find(|t| t.playable()).cloned() {
-                            this.open_track(track, cx);
-                        }
-                    })),
+                    .disabled(!self.visible.iter().any(|track| self.can_play_track(track)))
+                    .on_click(
+                        cx.listener(|this, _, _, cx| this.play_visible_collection(false, cx)),
+                    ),
             )
             .child(
                 Button::new("collection-shuffle")
@@ -791,17 +812,8 @@ impl Raag {
                     .when(artist, |button| button.text_color(rgb(0xffffff)))
                     .icon(icon("shuffle"))
                     .label(t("Shuffle"))
-                    .disabled(!self.visible.iter().any(Track::playable))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        if let Some(track) = this.visible.iter().find(|t| t.playable()).cloned() {
-                            this.queue.shuffle = true;
-                            this.queue
-                                .replace_selected(this.visible.as_ref().clone(), &track);
-                            this.invalidate_collection();
-                            this.complete_collection(false);
-                            this.start(track, cx);
-                        }
-                    })),
+                    .disabled(!self.visible.iter().any(|track| self.can_play_track(track)))
+                    .on_click(cx.listener(|this, _, _, cx| this.play_visible_collection(true, cx))),
             );
         if let Screen::Collection(id, _, false) = &self.screen
             && self.signed_in()

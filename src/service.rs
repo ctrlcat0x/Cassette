@@ -56,11 +56,7 @@ pub struct CollectionLoad {
 }
 pub fn filter_tracks(tracks: &mut Vec<Track>, filter: &str, sort: usize) {
     if !filter.is_empty() {
-        tracks.retain(|track| {
-            format!("{} {} {}", track.title, track.artist, track.album)
-                .to_lowercase()
-                .contains(filter)
-        });
+        tracks.retain(|track| track_matches(track, filter));
     }
     match sort {
         1 => tracks.sort_by_cached_key(|track| track.title.to_lowercase()),
@@ -68,6 +64,17 @@ pub fn filter_tracks(tracks: &mut Vec<Track>, filter: &str, sort: usize) {
         3 => tracks.sort_by_key(|track| track.duration),
         _ => {}
     }
+}
+
+pub fn track_matches(track: &Track, filter: &str) -> bool {
+    let album = if track.kind == ItemKind::Local {
+        raag::library::local_album_title(track)
+    } else {
+        &track.album
+    };
+    format!("{} {} {album}", track.title, track.artist)
+        .to_lowercase()
+        .contains(filter)
 }
 pub struct Backend {
     pub requests: JobSender<Request>,

@@ -295,6 +295,22 @@
     "आने वाले गाने हटाएँ",
     "Vaciar próximas canciones"
   ],
+  "Clear upcoming songs?": [
+    "आने वाले गाने हटाएँ?",
+    "¿Quitar las próximas canciones?"
+  ],
+  "The current song and earlier queue entries stay in the queue.": [
+    "मौजूदा गाना और उससे पहले के गाने कतार में रहेंगे।",
+    "La canción actual y las anteriores seguirán en la cola."
+  ],
+  "Ready to play": [
+    "चलाने के लिए तैयार",
+    "Listo para reproducir"
+  ],
+  "This song is unavailable offline.": [
+    "यह गाना ऑफ़लाइन उपलब्ध नहीं है।",
+    "Esta canción no está disponible sin conexión."
+  ],
   "Add to queue": [
     "कतार में जोड़ें",
     "Añadir a la cola"
@@ -462,6 +478,18 @@
   "Filter this collection…": [
     "इस संग्रह में खोजें…",
     "Filtrar esta colección…"
+  ],
+  "Clear filter": [
+    "फ़िल्टर हटाएँ",
+    "Borrar filtro"
+  ],
+  "Local files and cached songs on this device.": [
+    "इस डिवाइस पर मौजूद फ़ाइलें और कैश किए गए गाने।",
+    "Archivos locales y canciones en caché en este dispositivo."
+  ],
+  "Results from YouTube Music and your local files.": [
+    "YouTube Music और आपकी स्थानीय फ़ाइलों के नतीजे।",
+    "Resultados de YouTube Music y tus archivos locales."
   ],
   "Sort collection": [
     "संग्रह का क्रम",
@@ -1698,6 +1726,10 @@
   "{} available songs · {} pinned · {:.0} MiB used": [
     "{} उपलब्ध गीत · {} पिन किए गए · {:.0} MiB उपयोग",
     "{} canciones disponibles · {} fijadas · {:.0} MiB usados"
+  ],
+  "1 available song · {} pinned · {:.0} MiB used": [
+    "1 उपलब्ध गाना · {} पिन किए गए · {:.0} MiB उपयोग",
+    "1 canción disponible · {} fijadas · {:.0} MiB usados"
   ],
   "Download queue is full. Wait for a download to finish.": [
     "डाउनलोड कतार भरी है। एक डाउनलोड पूरा होने दें।",

@@ -354,6 +354,33 @@ impl Raag {
     pub(super) fn filter_and_sort(&self, tracks: &mut Vec<Track>) {
         crate::service::filter_tracks(tracks, &self.browse_filter, self.browse_sort);
     }
+
+    pub(super) fn collection_play_actions(&self, label: &str, cx: &mut Context<Self>) -> Div {
+        let disabled = !self.visible.iter().any(|track| self.can_play_track(track));
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(
+                Button::new("play-collection")
+                    .primary()
+                    .map(playback_depth)
+                    .icon(icon("play"))
+                    .label(label.to_owned())
+                    .disabled(disabled)
+                    .on_click(
+                        cx.listener(|this, _, _, cx| this.play_visible_collection(false, cx)),
+                    ),
+            )
+            .child(
+                Button::new("shuffle-collection")
+                    .ghost()
+                    .icon(icon("shuffle"))
+                    .label(t("Shuffle"))
+                    .disabled(disabled)
+                    .on_click(cx.listener(|this, _, _, cx| this.play_visible_collection(true, cx))),
+            )
+    }
     pub(super) fn row_key(track: &Track) -> String {
         track
             .set_video_id
@@ -379,7 +406,24 @@ impl Raag {
             .items_center()
             .gap_2()
             .flex_shrink_0()
-            .child(Input::new(&self.browse_query).w(rems(18.)))
+            .child(Input::new(&self.browse_query).w(rems(18.)).max_w_full())
+            .when(!self.browse_filter.is_empty(), |tools| {
+                tools.child(
+                    Button::new("clear-collection-filter")
+                        .ghost()
+                        .small()
+                        .icon(icon("xmark"))
+                        .tooltip(t("Clear filter"))
+                        .accessibility_label(t("Clear filter"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.browse_filter.clear();
+                            this.browse_query.update(cx, |input, cx| input.set_value("", window, cx));
+                            this.scroll.reset();
+                            this.refresh_visible();
+                            cx.notify();
+                        })),
+                )
+            })
             .child(
                 Button::new("sort-collection")
                     .ghost()
@@ -840,6 +884,12 @@ impl Raag {
                     state.completed,
                     state.total
                 )
+            } else if self.offline.len() == 1 {
+                tr!(
+                    "1 available song · {} pinned · {:.0} MiB used",
+                    state.pinned,
+                    state.bytes as f64 / 1048576.
+                )
             } else {
                 tr!(
                     "{} available songs · {} pinned · {:.0} MiB used",
@@ -945,7 +995,8 @@ impl Raag {
                     self.player.command(PlayerCommand::Stop);
                     self.playing = false;
                     self.buffering = false;
-                    self.failed = self.selected.is_some();
+                    self.playback_load = PlaybackLoad::Idle;
+                    self.resume_at = self.selected.as_ref().map(|_| self.position);
                     self.save();
                     cx.notify();
                 }
@@ -1021,6 +1072,9 @@ impl Raag {
         cx.notify();
     }
     pub(super) fn request_radio(&mut self) {
+        if self.library.offline_only {
+            return;
+        }
         let generation = self.player.generation();
         if self.radio_pending == Some(generation) || self.radio_attempted == Some(generation) {
             return;

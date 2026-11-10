@@ -246,6 +246,7 @@ impl Raag {
                 cx.listener(|this, _: &ResetZoom, window, cx| this.set_ui_scale(1., window, cx)),
             )
             .on_action(cx.listener(|this, _: &TogglePlayback, _, cx| this.toggle_playback(cx)))
+            .on_action(cx.listener(|this, _: &ToggleMute, window, cx| this.toggle_mute(window, cx)))
             .on_action(cx.listener(|this, _: &QuitApp, _, cx| {
                 this.flush();
                 cx.quit();

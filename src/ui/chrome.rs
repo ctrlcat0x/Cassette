@@ -38,7 +38,7 @@ enum ChromeState {
         history: (bool, bool),
     },
     Identity(u64, u64, bool, bool, bool),
-    Transport(bool, bool, bool, bool, bool),
+    Transport(bool, bool, bool, PlaybackLoad, bool),
     Actions(
         u64,
         (u64, u64),
@@ -52,7 +52,7 @@ enum ChromeState {
     Art(u64, u64),
     Background(u64, u64, bool, u32),
     Title(u64, (u64, u64)),
-    Buttons(bool, bool, bool, bool, Repeat),
+    Buttons(bool, bool, PlaybackLoad, bool, Repeat),
     Lyrics(u64, u64, bool, Option<usize>, Option<(usize, bool)>, bool),
 }
 
@@ -151,7 +151,7 @@ impl Raag {
                     self.selected.is_some(),
                     self.playing,
                     self.buffering,
-                    self.failed,
+                    self.playback_load,
                     self.sidebar_visible,
                 ),
                 ChromePart::Actions => ChromeState::Actions(
@@ -178,7 +178,7 @@ impl Raag {
                 ChromePart::ImmersiveButtons => ChromeState::Buttons(
                     self.playing,
                     self.buffering,
-                    self.failed,
+                    self.playback_load,
                     self.queue.shuffle,
                     self.queue.repeat,
                 ),

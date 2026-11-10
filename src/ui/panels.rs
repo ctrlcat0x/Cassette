@@ -95,7 +95,18 @@ impl Raag {
                             })),
                     ),
             )
-            .child(tabs);
+            .child(tabs)
+            .when(panel == Panel::Queue && self.has_upcoming(), |header| {
+                header.child(
+                    Button::new("clear-upcoming")
+                        .ghost()
+                        .small()
+                        .label(t("Clear upcoming"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.confirm_clear_upcoming(window, cx)
+                        })),
+                )
+            });
         let content = match panel {
             Panel::Playing => self.now_playing_panel(window, cx),
             Panel::Recent | Panel::Queue => self.panel_list(panel, cx),
@@ -122,8 +133,10 @@ impl Raag {
         let quality = &self.stream_quality;
         let description = if self.buffering {
             t("Finding the best available audio…").into()
-        } else if self.failed {
+        } else if self.playback_load == PlaybackLoad::Failed {
             t("Playback could not start. Try again.").into()
+        } else if self.playback_load == PlaybackLoad::Idle {
+            t("Ready to play").into()
         } else if quality.bitrate > 0. {
             format!(
                 "{} · {:.0} kb/s{}{}",

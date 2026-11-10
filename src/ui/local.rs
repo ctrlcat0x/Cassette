@@ -38,6 +38,7 @@ fn album_cover(album: &LocalAlbum, extent: Pixels, cx: &App) -> Div {
                     .absolute()
                     .inset_0()
                     .size_full()
+                    .rounded_lg()
                     .object_fit(ObjectFit::Cover),
             )
         })
@@ -66,7 +67,6 @@ impl Raag {
                     }
                 },
             );
-            let key = key.clone();
             return body
                 .pt_7()
                 .child(
@@ -105,19 +105,7 @@ impl Raag {
                                     detail,
                                     cx,
                                 ))
-                                .child(
-                                    Button::new("play-local-album")
-                                        .primary()
-                                        .icon(icon("play"))
-                                        .label(t("Play album"))
-                                        .disabled(album.is_none())
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            let tracks = this.library.local_album_tracks(&key);
-                                            if let Some(first) = tracks.first().cloned() {
-                                                this.play_tracks(first, tracks, cx);
-                                            }
-                                        })),
-                                ),
+                                .child(self.collection_play_actions(t("Play album"), cx)),
                         ),
                 )
                 .when(album.is_some(), |body| {
@@ -213,18 +201,8 @@ impl Raag {
             return body
                 .when(!self.library.local.is_empty(), |body| {
                     body.child(
-                        self.collection_tools(cx).child(
-                            Button::new("play-local-songs")
-                                .primary()
-                                .icon(icon("play"))
-                                .label(t("Play"))
-                                .disabled(self.visible.is_empty())
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    if let Some(track) = this.visible.first().cloned() {
-                                        this.open_track(track, cx);
-                                    }
-                                })),
-                        ),
+                        self.collection_tools(cx)
+                            .child(self.collection_play_actions(t("Play"), cx)),
                     )
                 })
                 .child(self.track_list(cx))

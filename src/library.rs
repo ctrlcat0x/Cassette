@@ -371,15 +371,7 @@ impl Library {
                 .unwrap_or(&track.artist);
             let album = albums.entry(key.clone()).or_insert_with(|| LocalAlbum {
                 key,
-                title: if track.album.trim().is_empty() {
-                    Path::new(&track.id)
-                        .parent()
-                        .and_then(Path::file_name)
-                        .map(|name| name.to_string_lossy().into_owned())
-                        .unwrap_or_default()
-                } else {
-                    track.album.trim().to_owned()
-                },
+                title: local_album_title(track).to_owned(),
                 artist: artist.to_owned(),
                 artwork: None,
                 track_count: 0,
@@ -481,6 +473,19 @@ pub(crate) fn store_local_cover(bytes: &[u8]) -> Option<String> {
         temporary.persist(&target).ok()?;
     }
     Some(target.to_string_lossy().into_owned())
+}
+
+pub fn local_album_title(track: &Track) -> &str {
+    let title = track.album.trim();
+    if title.is_empty() {
+        Path::new(&track.id)
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or_default()
+    } else {
+        title
+    }
 }
 
 pub fn is_audio(path: &Path) -> bool {

@@ -96,6 +96,7 @@ actions!(
         NextTrack,
         PreviousTrack,
         FocusSearch,
+        ToggleMute,
         ToggleSidebar,
         ShowQueue,
         ShowLyrics,
@@ -133,6 +134,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new(&format!("{modifier}--"), ZoomOut, Some("Raag")),
         KeyBinding::new(&format!("{modifier}-0"), ResetZoom, Some("Raag")),
         KeyBinding::new("space", TogglePlayback, Some("Raag && !Input")),
+        KeyBinding::new("m", ToggleMute, Some("Raag && !Input")),
         KeyBinding::new(&format!("{modifier}-right"), NextTrack, Some("Raag")),
         KeyBinding::new(&format!("{modifier}-left"), PreviousTrack, Some("Raag")),
         KeyBinding::new(&format!("{modifier}-k"), FocusSearch, Some("Raag")),
@@ -209,6 +211,13 @@ enum Panel {
     Recent,
     Queue,
     Lyrics,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PlaybackLoad {
+    Ready,
+    Idle,
+    Failed,
 }
 struct ContentPane {
     owner: WeakEntity<Raag>,
@@ -406,7 +415,7 @@ pub struct Raag {
     track_changed_at: Instant,
     playing: bool,
     buffering: bool,
-    failed: bool,
+    playback_load: PlaybackLoad,
     position: f64,
     duration: f64,
     muted_volume: f64,
@@ -825,7 +834,7 @@ impl Raag {
             track_changed_at: Instant::now(),
             playing: false,
             buffering: false,
-            failed: restored_track.is_some(),
+            playback_load: PlaybackLoad::Idle,
             position: restored_position,
             duration: restored_track.map_or(0., |t| t.duration as f64),
             muted_volume: 70.,
@@ -879,10 +888,39 @@ impl Raag {
         }
     }
     fn queue_edited(&mut self, cx: &mut Context<Self>) {
+        if self.screen == Screen::Queue {
+            self.refresh_visible();
+        }
         self.prefetch_next();
         self.save();
         self.right_content.update(cx, |_, cx| cx.notify());
         cx.notify();
+    }
+
+    fn has_upcoming(&self) -> bool {
+        self.queue.ordered_len() > self.queue.cursor().map_or(0, |cursor| cursor + 1)
+    }
+
+    fn confirm_clear_upcoming(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let prompt = window.prompt(
+            PromptLevel::Warning,
+            t("Clear upcoming songs?"),
+            Some(t(
+                "The current song and earlier queue entries stay in the queue.",
+            )),
+            &[t("Cancel"), t("Clear upcoming")],
+            cx,
+        );
+        cx.spawn(async move |view, cx| {
+            if prompt.await == Ok(1) {
+                let _ = view.update(cx, |this, cx| {
+                    this.queue.clear_upcoming();
+                    this.invalidate_collection();
+                    this.queue_edited(cx);
+                });
+            }
+        })
+        .detach();
     }
     fn save(&self) {
         if self.writable {
@@ -940,10 +978,9 @@ impl Raag {
                     .library
                     .local
                     .iter()
-                    .chain(&self.library.liked)
-                    .chain(&self.library.history)
+                    .chain(self.offline.iter())
                     .filter(|t| {
-                        t.title.to_lowercase().contains(&query) && seen.insert(t.title.clone())
+                        crate::service::track_matches(t, &query) && seen.insert(t.title.clone())
                     })
                     .take(8)
                     .map(|t| t.title.clone())
@@ -1315,7 +1352,9 @@ impl Raag {
                 }
                 Event::Offline(tracks) => {
                     self.offline = Arc::new(tracks);
-                    if self.screen == Screen::Offline {
+                    if self.screen == Screen::Offline
+                        || (self.library.offline_only && matches!(self.screen, Screen::Search(_)))
+                    {
                         self.refresh_visible();
                     }
                     changed = true;
@@ -1325,7 +1364,7 @@ impl Raag {
                         && generation == self.player.generation()
                     {
                         self.radio_pending = None;
-                        if self.library.autoplay || self.radio_mix {
+                        if !self.library.offline_only && (self.library.autoplay || self.radio_mix) {
                             let mut known: std::collections::HashSet<_> =
                                 self.queue.tracks().map(|t| t.id.clone()).collect();
                             if let Ok(tracks) = result {
@@ -1380,7 +1419,9 @@ impl Raag {
                             let mut known: std::collections::HashSet<_> =
                                 self.queue.tracks().map(Self::row_key).collect();
                             for track in tracks {
-                                if track.playable() && known.insert(Self::row_key(&track)) {
+                                if self.can_play_track(&track)
+                                    && known.insert(Self::row_key(&track))
+                                {
                                     self.queue.enqueue(track, false);
                                     panel_changed = true;
                                 }
@@ -1636,7 +1677,7 @@ impl Raag {
                         self.sleep_end = false;
                         self.playing = false;
                         self.buffering = false;
-                        self.failed = true;
+                        self.playback_load = PlaybackLoad::Idle;
                         self.resume_at = Some(0.);
                         self.position = 0.;
                         self.save();
@@ -1650,7 +1691,7 @@ impl Raag {
                     self.cancel_seek_preview(cx);
                     self.buffering = false;
                     self.playing = false;
-                    self.failed = true;
+                    self.playback_load = PlaybackLoad::Failed;
                     self.notice = Some(error);
                     panel_changed = true;
                     changed = true;
@@ -1802,11 +1843,18 @@ impl Raag {
         }
     }
     fn refresh_visible(&mut self) {
-        let saved = self.account_tracks(AccountSection::Songs);
-        let liked = self.account_tracks(AccountSection::Liked);
-        let history = self.account_tracks(AccountSection::History);
-        self.library
-            .refresh_smart_playlists_with(&saved, &liked, &history);
+        if self
+            .library
+            .playlists
+            .iter()
+            .any(|playlist| playlist.smart.is_some())
+        {
+            let saved = self.account_tracks(AccountSection::Songs);
+            let liked = self.account_tracks(AccountSection::Liked);
+            let history = self.account_tracks(AccountSection::History);
+            self.library
+                .refresh_smart_playlists_with(&saved, &liked, &history);
+        }
         self.content_revision += 1;
         let tracks = match &self.screen {
             Screen::Home => {
@@ -1828,6 +1876,39 @@ impl Raag {
             Screen::LocalSongs => Arc::new(self.library.local.clone()),
             Screen::LocalAlbum(key, _) => Arc::new(self.library.local_album_tracks(key)),
             Screen::Offline => self.offline.clone(),
+            Screen::Search(query) => {
+                let kind = match self.search_filter {
+                    2 => Some(ItemKind::Album),
+                    3 => Some(ItemKind::Artist),
+                    4 => Some(ItemKind::Playlist),
+                    _ => None,
+                };
+                let mut results = Vec::new();
+                let offline = self.library.offline_only;
+                if kind.is_none() {
+                    let query = query.to_lowercase();
+                    results.extend(
+                        self.library
+                            .local
+                            .iter()
+                            .chain(self.offline.iter().filter(|_| offline))
+                            .filter(|track| crate::service::track_matches(track, &query))
+                            .cloned(),
+                    );
+                }
+                if !offline {
+                    results.extend(
+                        self.catalog
+                            .iter()
+                            .filter(|track| match &kind {
+                                Some(kind) => &track.kind == kind,
+                                None => self.search_filter == 0 || track.playable(),
+                            })
+                            .cloned(),
+                    );
+                }
+                Arc::new(results)
+            }
             Screen::Collection(id, _, true) => Arc::new(
                 self.library
                     .playlists
@@ -1844,34 +1925,18 @@ impl Raag {
             ),
             _ => self.catalog.clone(),
         };
-        if matches!(self.screen, Screen::Search(_)) && self.search_filter > 0 {
-            let kind = [
-                ItemKind::Song,
-                ItemKind::Song,
-                ItemKind::Album,
-                ItemKind::Artist,
-                ItemKind::Playlist,
-            ][self.search_filter]
-                .clone();
-            self.visible = Arc::new(
-                tracks
-                    .iter()
-                    .filter(|track| track.kind == kind)
-                    .cloned()
-                    .collect(),
-            );
-        } else {
-            self.visible = tracks;
-        }
-        if matches!(
-            self.screen,
-            Screen::Library
-                | Screen::Liked
-                | Screen::LocalSongs
-                | Screen::LocalAlbum(..)
-                | Screen::Offline
-                | Screen::Collection(..)
-        ) {
+        self.visible = tracks;
+        if (!self.browse_filter.is_empty() || self.browse_sort != 0)
+            && matches!(
+                self.screen,
+                Screen::Library
+                    | Screen::Liked
+                    | Screen::LocalSongs
+                    | Screen::LocalAlbum(..)
+                    | Screen::Offline
+                    | Screen::Collection(..)
+            )
+        {
             let mut tracks = self.visible.as_ref().clone();
             self.filter_and_sort(&mut tracks);
             self.visible = Arc::new(tracks);
@@ -1999,7 +2064,7 @@ impl Raag {
         match self.screen.clone() {
             Screen::Home => self.request(Request::Home, cx),
             Screen::Explore => self.request(Request::Explore, cx),
-            Screen::Search(query) => {
+            Screen::Search(query) if !self.library.offline_only => {
                 self.request(|id| Request::Search(id, query, None), cx);
             }
             Screen::Radio(id) => self.request(|generation| Request::Radio(generation, id), cx),
@@ -2017,18 +2082,47 @@ impl Raag {
             _ => {}
         }
     }
+    fn can_play_track(&self, track: &Track) -> bool {
+        track.playable()
+            && (!self.library.offline_only
+                || track.kind == ItemKind::Local
+                || self.offline.iter().any(|cached| cached.id == track.id))
+    }
+
+    fn play_visible_collection(&mut self, shuffle: bool, cx: &mut Context<Self>) {
+        use rand::seq::IteratorRandom;
+
+        let mut playable = self
+            .visible
+            .iter()
+            .filter(|track| self.can_play_track(track));
+        let track = if shuffle {
+            playable.choose(&mut rand::rng())
+        } else {
+            playable.next()
+        };
+        if let Some(track) = track.cloned() {
+            if shuffle {
+                self.queue.shuffle = true;
+            }
+            self.open_track(track, cx);
+        }
+    }
+
     fn open_track(&mut self, track: Track, cx: &mut Context<Self>) {
         if self.signed_in() && track.kind == ItemKind::Playlist {
             self.open_account_playlist(track, cx);
             return;
         }
         if track.playable() {
+            if !self.can_play_track(&track) {
+                self.notice = Some(t("This song is unavailable offline.").into());
+                cx.notify();
+                return;
+            }
             let mut tracks = self.visible.as_ref().clone();
             if self.library.offline_only {
-                tracks.retain(|song| {
-                    song.kind == ItemKind::Local
-                        || self.offline.iter().any(|cached| cached.id == song.id)
-                });
+                tracks.retain(|song| self.can_play_track(song));
             }
             if !tracks.iter().any(|song| song.id == track.id) {
                 // Recent Home tiles may originate from account history rather than the catalog shelves.
@@ -2082,7 +2176,7 @@ impl Raag {
         }
         self.playing = false;
         self.buffering = true;
-        self.failed = false;
+        self.playback_load = PlaybackLoad::Ready;
         self.notice = None;
         self.lyrics.clear();
         self.lyrics_id.clear();
@@ -2109,9 +2203,10 @@ impl Raag {
         } else if ended {
             self.playing = false;
             self.buffering = false;
-            self.failed = true;
+            self.playback_load = PlaybackLoad::Idle;
             self.resume_at = Some(0.);
-            if self.library.autoplay
+            if !self.library.offline_only
+                && self.library.autoplay
                 && self
                     .selected
                     .as_ref()
@@ -2129,7 +2224,14 @@ impl Raag {
     }
     fn previous(&mut self, cx: &mut Context<Self>) {
         if self.position > 3. {
-            self.commit_seek(0., cx);
+            if self.playback_load == PlaybackLoad::Ready {
+                self.commit_seek(0., cx);
+            } else {
+                self.resume_at = Some(0.);
+                self.position = 0.;
+                self.save();
+                cx.notify();
+            }
         } else if let Some(track) = self.queue.previous().cloned() {
             self.start(track, cx);
         }
@@ -2137,16 +2239,14 @@ impl Raag {
     fn toggle_playback(&mut self, cx: &mut Context<Self>) {
         self.right_content.update(cx, |_, cx| cx.notify());
         if self.selected.is_none() {
-            if let Some(track) = self.visible.iter().find(|t| t.playable()).cloned() {
-                self.open_track(track, cx);
-            }
+            self.play_visible_collection(false, cx);
         } else if self.buffering {
             self.player.command(PlayerCommand::Stop);
             self.buffering = false;
             self.playing = false;
-            self.failed = true;
+            self.playback_load = PlaybackLoad::Idle;
             cx.notify();
-        } else if self.failed {
+        } else if self.playback_load != PlaybackLoad::Ready {
             if let Some(track) = self.selected.clone() {
                 let resume = self.resume_at;
                 self.start(track, cx);
@@ -2223,7 +2323,11 @@ impl Raag {
         cx.notify();
     }
     fn commit_seek(&mut self, target: f64, cx: &mut Context<Self>) {
-        if self.buffering || self.failed || self.duration <= 0. || !target.is_finite() {
+        if self.buffering
+            || self.playback_load != PlaybackLoad::Ready
+            || self.duration <= 0.
+            || !target.is_finite()
+        {
             return;
         }
         let target = target.clamp(0., self.duration);
@@ -2364,7 +2468,8 @@ impl Raag {
             .command(PlayerCommand::Configure(self.library.audio.clone()));
         self.playing = false;
         self.buffering = false;
-        self.failed = self.selected.is_some();
+        self.playback_load = PlaybackLoad::Idle;
+        self.resume_at = self.selected.as_ref().map(|_| self.position);
         self.save();
     }
     fn playback_cookies(&self) -> String {
@@ -3236,14 +3341,14 @@ impl Raag {
                     .when(self.buffering, |button| button.child(loading_indicator(cx)))
                     .tooltip(if self.buffering {
                         t("Cancel loading")
-                    } else if self.failed {
+                    } else if self.playback_load == PlaybackLoad::Failed {
                         t("Retry playback")
                     } else {
                         t("Play / pause · Space")
                     })
                     .accessibility_label(if self.buffering {
                         t("Cancel loading")
-                    } else if self.failed {
+                    } else if self.playback_load == PlaybackLoad::Failed {
                         t("Retry playback")
                     } else if self.playing {
                         t("Pause")
@@ -3281,8 +3386,7 @@ impl Raag {
                     .accessibility_label(t("Shuffle"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.queue.toggle_shuffle();
-                        this.right_content.update(cx, |_, cx| cx.notify());
-                        self_refresh(this, cx);
+                        this.queue_edited(cx);
                     })),
             )
             .child(
@@ -3296,7 +3400,7 @@ impl Raag {
                     .accessibility_label(t("Cycle repeat mode"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.queue.repeat = this.queue.repeat.cycle();
-                        cx.notify();
+                        this.queue_edited(cx);
                     })),
             )
             .child(
@@ -3331,8 +3435,10 @@ impl Raag {
         } else {
             &self.timeline
         };
-        let disabled =
-            self.selected.is_none() || self.buffering || self.failed || self.duration <= 0.;
+        let disabled = self.selected.is_none()
+            || self.buffering
+            || self.playback_load != PlaybackLoad::Ready
+            || self.duration <= 0.;
         let fraction = timeline.read(cx).percentage().end.clamp(0., 1.);
         let dragging = self.seek_preview.is_some();
         let foreground: Hsla = if self.immersive {
@@ -3467,7 +3573,7 @@ impl Raag {
         let snapshot = (
             self.selected.is_some(),
             self.buffering,
-            self.failed,
+            self.playback_load != PlaybackLoad::Ready,
             self.immersive,
             self.duration,
             self.seek_preview,
@@ -3708,6 +3814,11 @@ impl Raag {
                 .into_any_element();
         }
         let compact = f32::from(window.bounds().size.width) / self.library.ui_scale < 1100.;
+        let mute_label = if self.library.volume > 0. {
+            t("Mute")
+        } else {
+            t("Unmute")
+        };
         div()
             .flex()
             .items_center()
@@ -3723,22 +3834,10 @@ impl Raag {
                     } else {
                         "sound-off"
                     }))
-                    .tooltip(t("Mute"))
-                    .accessibility_label(t("Mute"))
+                    .tooltip(mute_label)
+                    .accessibility_label(mute_label)
                     .on_click(cx.listener(|this, _, window, cx| {
-                        if this.library.volume > 0. {
-                            this.muted_volume = this.library.volume;
-                            this.library.volume = 0.;
-                        } else {
-                            this.library.volume = this.muted_volume.max(1.);
-                        }
-                        this.volume.update(cx, |slider, cx| {
-                            slider.set_value(this.library.volume as f32, window, cx)
-                        });
-                        this.player
-                            .command(PlayerCommand::Volume(this.library.volume));
-                        this.save();
-                        cx.notify();
+                        this.toggle_mute(window, cx);
                     })),
             )
             .when(!compact, |container| {
@@ -3771,6 +3870,23 @@ impl Raag {
             })
             .into_any_element()
     }
+    fn toggle_mute(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.library.volume > 0. {
+            self.muted_volume = self.library.volume;
+            self.library.volume = 0.;
+        } else {
+            self.library.volume = self.muted_volume.max(1.);
+        }
+        self.volume.update(cx, |slider, cx| {
+            slider.set_value(self.library.volume as f32, window, cx);
+        });
+        self.player
+            .command(PlayerCommand::Volume(self.library.volume));
+        self.content_revision += 1;
+        self.save();
+        cx.notify();
+    }
+
     fn volume_control(&self, cx: &mut Context<Self>) -> AnyElement {
         let volume = self.volume.clone();
         div()
@@ -4193,6 +4309,18 @@ impl Raag {
     }
     fn empty_state(&self, cx: &mut Context<Self>) -> AnyElement {
         let (title, detail) = match self.screen {
+            Screen::Liked
+            | Screen::Offline
+            | Screen::LocalSongs
+            | Screen::LocalAlbum(..)
+            | Screen::Collection(..)
+                if !self.browse_filter.is_empty() =>
+            {
+                (
+                    t("No results found"),
+                    t("Try another song, artist or album."),
+                )
+            }
             Screen::Explore | Screen::Discover(..) if self.library.offline_only => (
                 t("This page is unavailable offline."),
                 t("Your local files and downloaded songs are still available."),
@@ -4208,10 +4336,6 @@ impl Raag {
             Screen::Recents => (
                 t("Your listening story starts here."),
                 t("Play a song and it will appear in your history."),
-            ),
-            Screen::LocalSongs | Screen::LocalAlbum(..) if !self.browse_filter.is_empty() => (
-                t("No results found"),
-                t("Try another song, artist or album."),
             ),
             Screen::LocalSongs => (
                 t("No local music yet"),
@@ -4358,32 +4482,21 @@ impl Raag {
         if self.screen == Screen::Offline {
             body = body.child(self.offline_controls(cx));
         }
-        let mut actions = div().flex().items_center().gap_2().child(
-            Button::new("play-list")
-                .primary()
-                .map(playback_depth)
-                .icon(icon("play"))
-                .label(t("Play"))
-                .disabled(!self.visible.iter().any(Track::playable))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    if let Some(track) = this.visible.iter().find(|track| track.playable()).cloned()
-                    {
-                        this.open_track(track, cx);
-                    }
-                })),
-        );
+        let mut actions = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap_2()
+            .child(self.collection_play_actions(t("Play"), cx));
         if self.screen == Screen::Queue {
             actions = actions.child(
                 Button::new("clear-upcoming")
                     .ghost()
                     .label(t("Clear upcoming"))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.queue.clear_upcoming();
-                        this.invalidate_collection();
-                        this.save();
-                        this.right_content.update(cx, |_, cx| cx.notify());
-                        self_refresh(this, cx);
-                    })),
+                    .disabled(!self.has_upcoming())
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.confirm_clear_upcoming(window, cx)),
+                    ),
             );
         }
         if let Screen::Collection(playlist_id, _, true) = &self.screen {
@@ -5086,6 +5199,7 @@ impl Render for Raag {
                 cx.listener(|this, _: &ResetZoom, window, cx| this.set_ui_scale(1., window, cx)),
             )
             .on_action(cx.listener(|this, _: &TogglePlayback, _, cx| this.toggle_playback(cx)))
+            .on_action(cx.listener(|this, _: &ToggleMute, window, cx| this.toggle_mute(window, cx)))
             .on_action(cx.listener(|this, _: &NextTrack, _, cx| this.next(false, cx)))
             .on_action(cx.listener(|this, _: &PreviousTrack, _, cx| this.previous(cx)))
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
