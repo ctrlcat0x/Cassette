@@ -512,6 +512,12 @@ impl Raag {
             .new(|cx| InputState::new(window, cx).placeholder(t("Search songs, artists, albums…")));
         let playlist_name =
             cx.new(|cx| InputState::new(window, cx).placeholder(t("Playlist name")));
+        let playlist_subscription =
+            cx.subscribe_in(&playlist_name, window, |this, _, event, window, cx| {
+                if this.editing_playlist && matches!(event, InputEvent::PressEnter { .. }) {
+                    this.save_playlist_name(window, cx);
+                }
+            });
         let organization_name =
             cx.new(|cx| InputState::new(window, cx).placeholder(t("Folder name")));
         let smart_name =
@@ -857,6 +863,7 @@ impl Raag {
             scroll: crate::motion::SmoothScroll::new(),
             collection_seed: None,
             _subscriptions: vec![
+                playlist_subscription,
                 visibility_subscription,
                 search_subscription,
                 browse_subscription,
@@ -4110,6 +4117,9 @@ impl Raag {
             _ => None,
         };
         let last = ix + 1 >= self.visible.len();
+        let offline = self.library.offline_only;
+        let available_offline = self.offline.iter().any(|cached| cached.id == track.id);
+        let can_enqueue = self.can_play_track(&track);
         Button::new(SharedString::from(format!("track-menu-{}-{ix}", track.id)))
             .ghost()
             .small()
@@ -4125,9 +4135,13 @@ impl Raag {
                     ]
                 } else {
                     vec![
-                        (t("Play next"), 0, false),
-                        (t("Add to queue"), 1, false),
-                        (t("Start song radio"), 2, track.kind != ItemKind::Song),
+                        (t("Play next"), 0, !can_enqueue),
+                        (t("Add to queue"), 1, !can_enqueue),
+                        (
+                            t("Start song radio"),
+                            2,
+                            offline || track.kind != ItemKind::Song,
+                        ),
                     ]
                 };
                 for (label, command, disabled) in commands {
@@ -4184,12 +4198,12 @@ impl Raag {
                         },
                     ));
                 }
-                if track.playable() {
+                if track.kind == ItemKind::Song {
                     let download_owner = owner.clone();
                     let download_track = track.clone();
                     menu = menu.item(
                         PopupMenuItem::new(t("Download for offline"))
-                            .disabled(track.kind != ItemKind::Song)
+                            .disabled(offline)
                             .on_click(move |_, _, cx| {
                                 let _ = download_owner.update(cx, |this, cx| {
                                     this.download_tracks(vec![download_track.clone()], cx)
@@ -4249,18 +4263,21 @@ impl Raag {
                                 }));
                         }
                     }
-                    let remove_owner = owner.clone();
-                    let remove_id = track.id.clone();
-                    menu = menu.item(PopupMenuItem::new(t("Remove offline download")).on_click(
-                        move |_, _, cx| {
-                            let _ = remove_owner.update(cx, |this, _| {
-                                this.downloads.submit(crate::downloads::Job::Remove(
-                                    Some(remove_id.clone()),
-                                    false,
-                                ));
-                            });
-                        },
-                    ));
+                    if available_offline {
+                        let remove_owner = owner.clone();
+                        let remove_id = track.id.clone();
+                        menu =
+                            menu.item(PopupMenuItem::new(t("Remove offline download")).on_click(
+                                move |_, _, cx| {
+                                    let _ = remove_owner.update(cx, |this, _| {
+                                        this.downloads.submit(crate::downloads::Job::Remove(
+                                            Some(remove_id.clone()),
+                                            false,
+                                        ));
+                                    });
+                                },
+                            ));
+                    }
                 }
                 if track.playable() {
                     let owner = owner.clone();

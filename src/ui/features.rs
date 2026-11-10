@@ -244,15 +244,22 @@ impl Raag {
         true
     }
     pub(super) fn playlist_picker(&self, cx: &mut Context<Self>) -> AnyElement {
+        let allow_remote = !self.library.offline_only
+            && self
+                .picker_tracks
+                .iter()
+                .all(|track| track.kind == ItemKind::Song);
         let mut entries = self.playlist_entries(usize::MAX);
         entries.retain(|e| {
             e.track.title.to_lowercase().contains(&self.browse_filter)
-                && (!e.local
-                    || self
-                        .library
+                && if e.local {
+                    self.library
                         .playlists
                         .iter()
-                        .any(|p| p.id == e.track.id && p.smart.is_none()))
+                        .any(|p| p.id == e.track.id && p.smart.is_none())
+                } else {
+                    allow_remote
+                }
         });
         let count = entries.len();
         let entity = cx.entity();
@@ -264,6 +271,20 @@ impl Raag {
             .gap_4()
             .child(self.title(t("Choose a destination for the selected music."), cx))
             .child(Input::new(&self.browse_query))
+            .when(count == 0, |body| {
+                body.child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(if !self.browse_filter.is_empty() {
+                            t("No matching playlists")
+                        } else if allow_remote {
+                            t("Create a playlist in Your library to add these songs.")
+                        } else {
+                            t("Create a local playlist in Your library to add these songs.")
+                        }),
+                )
+            })
             .child(
                 self.scroll
                     .bind_list(uniform_list(

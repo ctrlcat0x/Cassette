@@ -1719,6 +1719,18 @@
     "चुने गए संगीत के लिए प्लेलिस्ट चुनें।",
     "Elige un destino para la música seleccionada."
   ],
+  "No matching playlists": [
+    "कोई मिलती-जुलती प्लेलिस्ट नहीं",
+    "No se encontraron listas"
+  ],
+  "Create a playlist in Your library to add these songs.": [
+    "ये गाने जोड़ने के लिए अपनी लाइब्रेरी में प्लेलिस्ट बनाएँ।",
+    "Crea una lista en Tu biblioteca para añadir estas canciones."
+  ],
+  "Create a local playlist in Your library to add these songs.": [
+    "ये गाने जोड़ने के लिए अपनी लाइब्रेरी में स्थानीय प्लेलिस्ट बनाएँ।",
+    "Crea una lista local en Tu biblioteca para añadir estas canciones."
+  ],
   "{minutes} min": [
     "{minutes} मिनट",
     "{minutes} min"
