@@ -136,7 +136,6 @@ impl Raag {
             .as_ref()
             .and_then(|id| self.library.folders.iter().find(|f| &f.id == id))
             .and_then(|f| f.parent.clone());
-        let mut body = div().flex().flex_col().gap_3().flex_shrink_0();
         let mut folders = div().flex().flex_wrap().items_center().gap_2().when(
             self.library.active_folder.is_some(),
             |row| {
@@ -310,7 +309,7 @@ impl Raag {
                     }),
             );
         }
-        body = body.when(!self.library.folders.is_empty(), |body| body.child(folders)).when(self.folder_editor, |body| body.child(
+        div().flex().flex_col().gap_3().flex_shrink_0().when(!self.library.folders.is_empty(), |body| body.child(folders)).when(self.folder_editor, |body| body.child(
             div()
                 .flex()
                 .flex_wrap()
@@ -345,11 +344,7 @@ impl Raag {
                     Button::new("cancel-folder-editor").ghost().label(t("Cancel"))
                         .on_click(cx.listener(|this, _, _, cx| { this.folder_editor = false; this.content_revision += 1; cx.notify(); })),
                 ),
-        ));
-        if self.editing_smart.is_some() {
-            body = body.child(self.smart_editor(cx));
-        }
-        body
+        ))
     }
     fn smart_editor(&self, cx: &mut Context<Self>) -> Div {
         let mut body = div()
@@ -360,12 +355,12 @@ impl Raag {
             .border_1()
             .border_color(cx.theme().border)
             .rounded_lg();
-        for (label, input) in [
-            (t("Playlist name"), &self.smart_name),
-            (t("Contains text"), &self.smart_query),
-            (t("Artist contains"), &self.smart_artist),
-            (t("Album contains"), &self.smart_album),
-            (t("Minimum plays"), &self.smart_plays),
+        for (id, label, input) in [
+            ("smart-name", t("Playlist name"), &self.smart_name),
+            ("smart-query", t("Contains text"), &self.smart_query),
+            ("smart-artist", t("Artist contains"), &self.smart_artist),
+            ("smart-album", t("Album contains"), &self.smart_album),
+            ("smart-plays", t("Minimum plays"), &self.smart_plays),
         ] {
             body = body.child(
                 div()
@@ -374,29 +369,144 @@ impl Raag {
                     .gap_1()
                     .text_sm()
                     .child(label)
-                    .child(Input::new(input)),
+                    .child(Input::new(input).id(id).aria_label(label)),
             );
         }
-        body.child(Button::new("smart-source").label(tr!("Source: {}", [t("All library entries"), t("Liked songs"), t("Local files"), t("Recently played")][self.smart_source.min(3)])).on_click(cx.listener(|this, _, _, cx| { this.smart_source = (this.smart_source + 1) % 4; this.content_revision += 1; cx.notify(); })))
-            .child(Switch::new("smart-clean").label(t("Exclude explicit songs")).checked(self.smart_exclude_explicit).on_change(cx.listener(|this, v, _, cx| { this.smart_exclude_explicit = *v; this.content_revision += 1; cx.notify(); })))
-            .child(div().text_sm().text_color(cx.theme().muted_foreground).child(t("Rules match songs in your library, synced likes and history. Membership updates automatically.")))
-            .child(div().flex().gap_2()
-                .child(Button::new("save-smart").primary().label(t("Save smart playlist")).on_click(cx.listener(|this, _, _, cx| {
-                    let minimum = this.smart_plays.read(cx).value().trim().to_owned();
-                    let minimum_plays = if minimum.is_empty() { 0 } else { match minimum.parse::<u64>() { Ok(value) => value, Err(_) => { this.notice = Some(t("Minimum plays must be a whole number.").into()); this.content_revision += 1; cx.notify(); return; } } };
-                    let name = this.smart_name.read(cx).value().trim().to_owned();
-                    let id = match this.editing_smart.clone().filter(|id| !id.is_empty()) { Some(id) => { if let Err(error) = this.library.rename_playlist(&id, &name) { this.notice = Some(error.to_string()); this.content_revision += 1; cx.notify(); return; } id }, None => match this.library.create_playlist(&name) { Ok(id) => id, Err(error) => { this.notice = Some(error.to_string()); this.content_revision += 1; cx.notify(); return; } } };
-                    let rule = raag::organization::SmartRule { query: this.smart_query.read(cx).value().to_string(), artist: this.smart_artist.read(cx).value().to_string(), album: this.smart_album.read(cx).value().to_string(), source: this.smart_source, minimum_plays, exclude_explicit: this.smart_exclude_explicit };
-                    if let Some(playlist) = this.library.playlists.iter_mut().find(|p| p.id == id) { playlist.smart = Some(rule); }
-                    this.library.playlist_metadata.entry(id.clone()).or_default().folder = this.library.active_folder.clone();
-                    this.editing_smart = None; this.save(); this.navigate(Screen::Collection(id, name, true), cx); this.content_revision += 1; cx.notify();
-                })))
-                .child(Button::new("cancel-smart").ghost().label(t("Cancel")).on_click(cx.listener(|this, _, _, cx| { this.editing_smart = None; this.content_revision += 1; cx.notify(); }))))
+        let sources = [
+            t("All library entries"),
+            t("Liked songs"),
+            t("Local files"),
+            t("Recently played"),
+        ];
+        body.child(
+            Button::new("smart-source")
+                .label(tr!("Source: {}", sources[self.smart_source.min(3)]))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.smart_source = (this.smart_source + 1) % 4;
+                    this.content_revision += 1;
+                    cx.notify();
+                })),
+        )
+        .child(
+            Switch::new("smart-clean")
+                .label(t("Exclude explicit songs"))
+                .checked(self.smart_exclude_explicit)
+                .on_change(cx.listener(|this, value, _, cx| {
+                    this.smart_exclude_explicit = *value;
+                    this.content_revision += 1;
+                    cx.notify();
+                })),
+        )
+        .child(
+            div().text_sm().text_color(cx.theme().muted_foreground).child(t(
+                "Rules match songs in your library, synced likes and history. Membership updates automatically.",
+            )),
+        )
+        .child(
+            div()
+                .flex()
+                .gap_2()
+                .child(
+                    Button::new("save-smart")
+                        .primary()
+                        .label(t("Save smart playlist"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Err(error) = this.save_smart_playlist(cx) {
+                                this.notice = Some(error);
+                                cx.notify();
+                            }
+                        })),
+                )
+                .child(
+                    Button::new("cancel-smart")
+                        .ghost()
+                        .label(t("Cancel"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.editing_smart = None;
+                            this.content_revision += 1;
+                            cx.notify();
+                        })),
+                ),
+        )
     }
-    pub(super) fn playlist_organization_tools(&self, cx: &mut Context<Self>) -> Div {
-        div().when(self.editing_smart.is_some(), |body| {
-            body.child(self.smart_editor(cx))
-        })
+    fn save_smart_playlist(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
+        let minimum = self.smart_plays.read(cx).value();
+        let minimum_plays = if minimum.trim().is_empty() {
+            0
+        } else {
+            minimum
+                .trim()
+                .parse()
+                .map_err(|_| t("Minimum plays must be a whole number.").to_owned())?
+        };
+        let name = self.smart_name.read(cx).value().trim().to_owned();
+        let id = if let Some(id) = self.editing_smart.clone().filter(|id| !id.is_empty()) {
+            self.library
+                .rename_playlist(&id, &name)
+                .map_err(|error| error.to_string())?;
+            id
+        } else {
+            let id = self
+                .library
+                .create_playlist(&name)
+                .map_err(|error| error.to_string())?;
+            self.library
+                .playlist_metadata
+                .entry(id.clone())
+                .or_default()
+                .folder = self.library.active_folder.clone();
+            id
+        };
+        let rule = raag::organization::SmartRule {
+            query: self.smart_query.read(cx).value().to_string(),
+            artist: self.smart_artist.read(cx).value().to_string(),
+            album: self.smart_album.read(cx).value().to_string(),
+            source: self.smart_source,
+            minimum_plays,
+            exclude_explicit: self.smart_exclude_explicit,
+        };
+        if let Some(playlist) = self
+            .library
+            .playlists
+            .iter_mut()
+            .find(|playlist| playlist.id == id)
+        {
+            playlist.smart = Some(rule);
+        }
+        self.editing_smart = None;
+        self.navigation_revision += 1;
+        self.save();
+        let screen = Screen::Collection(id, name, true);
+        if self.screen == screen {
+            self.refresh_visible();
+            cx.notify();
+        } else {
+            self.navigate(screen, cx);
+        }
+        Ok(())
+    }
+    pub(super) fn smart_editor_screen(&self, cx: &mut Context<Self>) -> AnyElement {
+        let title = if self.editing_smart.as_deref() == Some("") {
+            t("New smart playlist")
+        } else {
+            t("Edit smart rules")
+        };
+        div()
+            .id("smart-editor-scroll")
+            .size_full()
+            .overflow_y_scroll()
+            .px_8()
+            .pb_6()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .max_w(rems(38.))
+                    .child(self.page_heading(title, "", cx))
+                    .child(self.smart_editor(cx)),
+            )
+            .into_any_element()
     }
     pub(super) fn collection_actions(
         &self,

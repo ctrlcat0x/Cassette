@@ -1659,9 +1659,13 @@
     "गीत, एल्बम और उन्हें बनाने वाले कलाकार।",
     "Canciones, álbumes y quienes los crean."
   ],
-  "{count} songs · {} min": [
-    "{count} गीत · {} मिनट",
-    "{count} canciones · {} min"
+  "{songs} · {} min": [
+    "{songs} · {} मिनट",
+    "{songs} · {} min"
+  ],
+  "1 song": [
+    "1 गाना",
+    "1 canción"
   ],
   "{count} songs": [
     "{count} गीत",

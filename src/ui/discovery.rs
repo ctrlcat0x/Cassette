@@ -1032,10 +1032,15 @@ impl Raag {
         let playable = self.visible.iter().filter(|track| track.playable());
         let count = playable.clone().count();
         let seconds: u64 = playable.map(|track| track.duration).sum();
-        let info = if seconds > 0 {
-            tr!("{count} songs · {} min", seconds / 60)
+        let songs = if count == 1 {
+            t("1 song").to_owned()
         } else {
             tr!("{count} songs")
+        };
+        let info = match seconds {
+            0 => songs,
+            1..60 => format!("{songs} · {}", clock(seconds as f64)),
+            _ => tr!("{songs} · {} min", seconds / 60),
         };
         let width = self.content_width(window).max(320.);
         let narrow = ((1100. - width) / 220.).clamp(0., 1.);

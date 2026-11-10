@@ -529,7 +529,6 @@ impl Raag {
                         })),
                 )
             })
-            .child(self.playlist_organization_tools(cx))
     }
     fn remove_selected(&mut self, cx: &mut Context<Self>) {
         let tracks: Vec<_> = self

@@ -859,6 +859,9 @@ impl Raag {
         }
     }
     fn main_content(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        if self.editing_smart.is_some() {
+            return self.smart_editor_screen(cx);
+        }
         match self.screen {
             Screen::Home => self.home(window, cx),
             Screen::Explore | Screen::Discover(..) => self.explore_screen(window, cx),
