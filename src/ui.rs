@@ -406,7 +406,7 @@ pub struct Raag {
     pagination_attempts: std::collections::HashSet<(Screen, AccountSection, String)>,
     search_filter: usize,
     suggestion_revision: u64,
-    suggestion_pending: Option<(String, Instant)>,
+    suggestion_task: Option<Task<()>>,
     suggestions: Vec<String>,
     selected: Option<Track>,
     images: Entity<crate::images::ResidentImages>,
@@ -584,12 +584,19 @@ impl Raag {
                     this.suggestion_revision = this.suggestion_revision.wrapping_add(1);
                     this.suggestions.clear();
                     let query = input.read(cx).value().to_string();
-                    this.suggestion_pending = (query.trim().chars().count() >= 2
+                    this.suggestion_task = (query.trim().chars().count() >= 2
                         && query.len() <= 512
                         && !query.starts_with("https://")
                         && !query.starts_with("cassette://")
                         && !query.starts_with("spotify:"))
-                    .then(|| (query, Instant::now() + Duration::from_millis(250)));
+                    .then(|| {
+                        cx.spawn(async move |view, cx| {
+                            cx.background_executor()
+                                .timer(Duration::from_millis(250))
+                                .await;
+                            let _ = view.update(cx, |this, cx| this.suggest(query, cx));
+                        })
+                    });
                     cx.notify();
                 }
                 if matches!(event, InputEvent::PressEnter { .. }) {
@@ -700,8 +707,7 @@ impl Raag {
                         {
                             250
                         } else if window.is_window_active()
-                            && (this.suggestion_pending.is_some()
-                                || this.auth.busy()
+                            && (this.auth.busy()
                                 || this.account.syncing()
                                 || this.download_status.active)
                         {
@@ -832,7 +838,7 @@ impl Raag {
             pagination_attempts: Default::default(),
             search_filter: 0,
             suggestion_revision: 0,
-            suggestion_pending: None,
+            suggestion_task: None,
             suggestions: vec![],
             selected: restored_track.clone(),
             images: crate::images::ResidentImages::new(cx),
@@ -974,34 +980,6 @@ impl Raag {
             self.notice_seen = None;
             cx.notify();
         }
-        if self
-            .suggestion_pending
-            .as_ref()
-            .is_some_and(|(_, deadline)| Instant::now() >= *deadline)
-        {
-            let (query, _) = self.suggestion_pending.take().unwrap();
-            if self.library.offline_only {
-                let query = query.to_lowercase();
-                let mut seen = std::collections::HashSet::new();
-                self.suggestions = self
-                    .library
-                    .local
-                    .iter()
-                    .chain(self.offline.iter())
-                    .filter(|t| {
-                        crate::service::track_matches(t, &query) && seen.insert(t.title.clone())
-                    })
-                    .take(8)
-                    .map(|t| t.title.clone())
-                    .collect();
-                cx.notify();
-            } else {
-                let _ = self
-                    .backend
-                    .suggestions
-                    .send((self.suggestion_revision, query));
-            }
-        }
         if !self.account.busy_edits()
             && let Some(edit) = self.pending_edits.pop_front()
         {
@@ -1096,7 +1074,7 @@ impl Raag {
             self.downloads.cancel();
             self.account.reset();
             self.suggestion_revision = self.suggestion_revision.wrapping_add(1);
-            self.suggestion_pending = None;
+            self.suggestion_task = None;
             self.suggestions.clear();
             self.pending_edits.clear();
             self.playlist_editor_remote = false;
@@ -1177,7 +1155,7 @@ impl Raag {
                     changed = true;
                 }
                 Event::Page(id, page, append) if id == self.revision => {
-                    let mut page = *page;
+                    let mut page = Arc::unwrap_or_clone(page);
                     self.loading = false;
                     self.continuation = page.continuation.clone();
                     if append {
@@ -2045,9 +2023,32 @@ impl Raag {
             cx.notify();
         }
     }
+    fn suggest(&mut self, query: String, cx: &mut Context<Self>) {
+        if self.library.offline_only {
+            let query = query.to_lowercase();
+            let mut seen = std::collections::HashSet::new();
+            self.suggestions = self
+                .library
+                .local
+                .iter()
+                .chain(self.offline.iter())
+                .filter(|t| {
+                    crate::service::track_matches(t, &query) && seen.insert(t.title.clone())
+                })
+                .take(8)
+                .map(|t| t.title.clone())
+                .collect();
+            cx.notify();
+        } else {
+            let _ = self
+                .backend
+                .suggestions
+                .send((self.suggestion_revision, query));
+        }
+    }
     fn submit_search(&mut self, query: String, cx: &mut Context<Self>) {
         self.suggestions.clear();
-        self.suggestion_pending = None;
+        self.suggestion_task = None;
         self.suggestion_revision = self.suggestion_revision.wrapping_add(1);
         let screen = Screen::Search(query);
         if self.screen == screen {

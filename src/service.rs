@@ -27,8 +27,10 @@ pub enum Request {
     Radio(u64, String),
     Artist(u64, String),
 }
+type CatalogJob = (Request, PathBuf, bool, Snapshot);
+
 pub enum Event {
-    Page(u64, Box<Page>, bool),
+    Page(u64, Arc<Page>, bool),
     Failure(u64, String),
     Lyrics(String, Result<raag::lyrics::Lyrics, String>),
     Artwork(HashMap<String, PathBuf>, HashMap<PathBuf, u8>),
@@ -114,7 +116,8 @@ impl Backend {
         let collection_auth = auth.clone();
         let (collections, collection_jobs) = mpsc::sync_channel::<CollectionLoad>(8);
         let (requests, requests_rx) = jobs::channel::<Request>(1);
-        let (network, jobs) = jobs::channel::<(Request, PathBuf, bool, Snapshot)>(1);
+        let (network, catalog_jobs) = jobs::channel::<CatalogJob>(1);
+        let (search, search_jobs) = jobs::channel::<CatalogJob>(1);
         let (events, results) = mpsc::sync_channel(128);
         let radio_events = events.clone();
         let suggestion_events = events.clone();
@@ -255,98 +258,21 @@ impl Backend {
             dispatch_requests(
                 requests_rx,
                 network,
+                search,
                 cached_events,
                 requested,
                 directory,
                 dispatch_auth,
             )
         });
-        let responses = events.clone();
         let lyrics_auth = auth.clone();
-        thread::spawn(move || {
-            let _domain = raag::diagnostics::enter(raag::diagnostics::Domain::Catalog);
-            let mut catalog = match Catalog::new(None) {
-                Ok(catalog) => catalog,
-                Err(error) => {
-                    let _ = responses.send(Event::Failure(0, error.to_string()));
-                    return;
-                }
-            };
-            let mut bootstrapped = false;
-            while let Ok(mut job) = jobs.recv() {
-                while let Ok(newer) = jobs.try_recv() {
-                    job = newer;
-                }
-                let (request, saved_path, has_cache, snapshot) = job;
-                if raag::cache::offline_only() {
-                    if !has_cache {
-                        let _ = responses.send(Event::Failure(
-                            request_revision(&request),
-                            "This page is unavailable offline.".into(),
-                        ));
-                    }
-                    continue;
-                }
-                if request_revision(&request) != latest.load(Ordering::Acquire)
-                    || !auth.current(snapshot.generation)
-                {
-                    continue;
-                }
-                catalog.set_session(snapshot.session);
-                if !bootstrapped {
-                    catalog.bootstrap();
-                    bootstrapped = true;
-                }
-                if request_revision(&request) != latest.load(Ordering::Acquire)
-                    || !auth.current(snapshot.generation)
-                {
-                    continue;
-                }
-                let (revision, result, append) = match request {
-                    Request::Home(id) => (id, catalog.home(), false),
-                    Request::Explore(id) => (id, catalog.explore(), false),
-                    Request::Search(id, query, filter) => {
-                        (id, catalog.search_filtered(&query, filter), false)
-                    }
-                    Request::Browse(id, browse_id, title) => {
-                        (id, catalog.browse(&browse_id, &title), false)
-                    }
-                    Request::Discover(id, browse_id, params, title) => {
-                        (id, catalog.discover(&browse_id, &params, &title), false)
-                    }
-                    Request::More(id, token, search, visitor) => (
-                        id,
-                        catalog.more_with_visitor(&token, search, visitor.as_deref()),
-                        true,
-                    ),
-                    Request::Radio(id, video) => (id, catalog.radio(&video), false),
-                    Request::Artist(id, name) => (id, catalog.artist(&name), false),
-                };
-                match result {
-                    Ok(page) => {
-                        if !auth.current(snapshot.generation) {
-                            continue;
-                        }
-                        if !append {
-                            let _ = raag::cache::write_json(&saved_path, &page);
-                            let _ = raag::cache::maintain_metadata(&saved_path);
-                        }
-                        if revision == latest.load(Ordering::Acquire) {
-                            fetch_page_artwork(&page, responses.clone());
-                            let _ = responses.send(Event::Page(revision, Box::new(page), append));
-                        }
-                    }
-                    Err(error)
-                        if !has_cache
-                            && revision == latest.load(Ordering::Acquire)
-                            && auth.current(snapshot.generation) =>
-                    {
-                        let _ = responses.send(Event::Failure(revision, format!("{error:#}")));
-                    }
-                    Err(_) => {}
-                }
-            }
-        });
+        // A slow Home, collection, or radio request cannot hold up a search.
+        for (inbox, bootstrap) in [(catalog_jobs, true), (search_jobs, false)] {
+            let responses = events.clone();
+            let latest = latest.clone();
+            let auth = auth.clone();
+            thread::spawn(move || run_catalog(inbox, responses, latest, auth, bootstrap));
+        }
         let (lyrics, lyric_jobs) = jobs::channel::<(String, Track, raag::lyrics::Source, bool)>(1);
         let lyric_events = events.clone();
         thread::spawn(move || {
@@ -504,9 +430,131 @@ impl Backend {
     }
 }
 
+fn run_catalog(
+    jobs: JobReceiver<CatalogJob>,
+    responses: SyncSender<Event>,
+    latest: Arc<AtomicU64>,
+    auth: SessionAccess,
+    bootstrap: bool,
+) {
+    let _domain = raag::diagnostics::enter(raag::diagnostics::Domain::Catalog);
+    let mut catalog = match Catalog::new(None) {
+        Ok(catalog) => catalog,
+        Err(error) => {
+            let _ = responses.send(Event::Failure(0, error.to_string()));
+            return;
+        }
+    };
+    let mut bootstrapped = false;
+    while let Ok(mut job) = jobs.recv() {
+        while let Ok(newer) = jobs.try_recv() {
+            job = newer;
+        }
+        let (request, saved_path, has_cache, snapshot) = job;
+        if raag::cache::offline_only() {
+            if !has_cache {
+                let _ = responses.send(Event::Failure(
+                    request_revision(&request),
+                    "This page is unavailable offline.".into(),
+                ));
+            }
+            continue;
+        }
+        if request_revision(&request) != latest.load(Ordering::Acquire)
+            || !auth.current(snapshot.generation)
+        {
+            continue;
+        }
+        catalog.set_session(snapshot.session);
+        if bootstrap && !bootstrapped {
+            catalog.bootstrap();
+            bootstrapped = true;
+        }
+        if request_revision(&request) != latest.load(Ordering::Acquire)
+            || !auth.current(snapshot.generation)
+        {
+            continue;
+        }
+        let (revision, result, append) = match request {
+            Request::Home(id) => (id, catalog.home(), false),
+            Request::Explore(id) => (id, catalog.explore(), false),
+            Request::Search(id, query, filter) => {
+                let mut result = catalog.search_filtered(&query, filter.clone());
+                // Start with the pinned client version. Refresh it if the service rejects it.
+                if !bootstrapped
+                    && result.as_ref().is_err_and(|error| {
+                        matches!(
+                            error.downcast_ref::<raag::auth::SignInFailure>(),
+                            Some(raag::auth::SignInFailure::Http(400 | 404))
+                        )
+                    })
+                    && id == latest.load(Ordering::Acquire)
+                    && auth.current(snapshot.generation)
+                {
+                    catalog.bootstrap();
+                    bootstrapped = true;
+                    if id == latest.load(Ordering::Acquire) && auth.current(snapshot.generation) {
+                        result = catalog.search_filtered(&query, filter);
+                    }
+                }
+                (id, result, false)
+            }
+            Request::Browse(id, browse_id, title) => {
+                (id, catalog.browse(&browse_id, &title), false)
+            }
+            Request::Discover(id, browse_id, params, title) => {
+                (id, catalog.discover(&browse_id, &params, &title), false)
+            }
+            Request::More(id, token, search, visitor) => (
+                id,
+                catalog.more_with_visitor(&token, search, visitor.as_deref()),
+                true,
+            ),
+            Request::Radio(id, video) => (id, catalog.radio(&video), false),
+            Request::Artist(id, name) => (id, catalog.artist(&name), false),
+        };
+        match result {
+            Ok(page) => {
+                if !auth.current(snapshot.generation) {
+                    continue;
+                }
+                let page = Arc::new(page);
+                if revision == latest.load(Ordering::Acquire) {
+                    publish_page(&responses, revision, page.clone(), append);
+                }
+                if !append && raag::cache::write_json(&saved_path, &*page).is_ok() {
+                    let _ = raag::cache::maintain_metadata(&saved_path);
+                }
+            }
+            Err(error)
+                if !has_cache
+                    && revision == latest.load(Ordering::Acquire)
+                    && auth.current(snapshot.generation) =>
+            {
+                let _ = responses.send(Event::Failure(revision, format!("{error:#}")));
+            }
+            Err(_) => {}
+        }
+    }
+}
+
+fn publish_page(events: &SyncSender<Event>, revision: u64, page: Arc<Page>, append: bool) {
+    if events
+        .send(Event::Page(revision, page.clone(), append))
+        .is_ok()
+    {
+        fetch_page_artwork(&page, events.clone());
+    }
+}
+
+fn is_search_request(request: &Request) -> bool {
+    matches!(request, Request::Search(..) | Request::More(_, _, true, _))
+}
+
 fn dispatch_requests(
     requests: JobReceiver<Request>,
-    network: JobSender<(Request, PathBuf, bool, Snapshot)>,
+    network: JobSender<CatalogJob>,
+    search: JobSender<CatalogJob>,
     events: SyncSender<Event>,
     latest: Arc<AtomicU64>,
     directory: PathBuf,
@@ -535,8 +583,7 @@ fn dispatch_requests(
         if let Some(page) = cached
             && auth.current(snapshot.generation)
         {
-            fetch_page_artwork(&page, events.clone());
-            let _ = events.send(Event::Page(revision, Box::new(page), false));
+            publish_page(&events, revision, Arc::new(page), false);
         }
         if has_cache
             && (raag::cache::offline_only()
@@ -544,8 +591,13 @@ fn dispatch_requests(
         {
             continue;
         }
-        if network.send((request, path, has_cache, snapshot)).is_err() {
-            break;
+        let worker = if is_search_request(&request) {
+            &search
+        } else {
+            &network
+        };
+        if worker.send((request, path, has_cache, snapshot)).is_err() && !has_cache {
+            let _ = events.send(Event::Failure(revision, "Catalog worker stopped.".into()));
         }
     }
 }
@@ -1009,4 +1061,31 @@ fn artwork_colors(path: &std::path::Path) -> Option<raag::artwork::ArtworkColors
         save_soft_artwork(&decoded, path);
     }
     Some(colors)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_and_search_pagination_share_the_same_worker() {
+        assert!(is_search_request(&Request::Search(
+            1,
+            "cassette".into(),
+            None
+        )));
+        assert!(is_search_request(&Request::More(
+            1,
+            "next".into(),
+            true,
+            None
+        )));
+        assert!(!is_search_request(&Request::More(
+            1,
+            "next".into(),
+            false,
+            None
+        )));
+        assert!(!is_search_request(&Request::Home(1)));
+    }
 }

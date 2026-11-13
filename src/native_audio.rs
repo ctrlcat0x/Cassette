@@ -12,7 +12,7 @@ use std::{
     collections::VecDeque,
     io::{self, Read, Seek, SeekFrom},
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Sender},
     },
@@ -85,7 +85,6 @@ impl NativeSession {
                     return;
                 }
             };
-            shared.pcm.lock().unwrap().reserve(output.1 as usize);
             let mut source: Option<AudioSource> = None;
             let mut cancellation = Arc::new(AtomicBool::new(false));
             let (decoded, results) = mpsc::channel::<(u64, Result<f64>)>();
@@ -120,7 +119,7 @@ impl NativeSession {
                     requests
                         .recv()
                         .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
-                } else if shared.paused.load(Ordering::Acquire) && announced {
+                } else if ended || (shared.paused.load(Ordering::Acquire) && announced) {
                     requests.recv_timeout(Duration::from_millis(200))
                 } else {
                     requests.recv_timeout(Duration::from_millis(20))
@@ -220,7 +219,11 @@ impl NativeSession {
                     cancellation.store(true, Ordering::Release);
                     cancellation = Arc::new(AtomicBool::new(false));
                     epoch += 1;
-                    shared.pcm.lock().unwrap().clear();
+                    {
+                        let mut pcm = shared.pcm.lock().unwrap();
+                        pcm.clear();
+                        pcm.reserve(output.1 as usize);
+                    }
                     shared.consumed.store(0, Ordering::Release);
                     shared.eof.store(false, Ordering::Release);
                     worker_loaded.store(false, Ordering::Release);
@@ -568,9 +571,13 @@ fn decode(
             &MetadataOptions::default(),
         )?
         .format;
-    let mut codecs = CodecRegistry::new();
-    symphonia::default::register_enabled_codecs(&mut codecs);
-    codecs.register_all::<symphonia_adapter_libopus::OpusDecoder>();
+    static CODECS: OnceLock<CodecRegistry> = OnceLock::new();
+    let codecs = CODECS.get_or_init(|| {
+        let mut codecs = CodecRegistry::new();
+        symphonia::default::register_enabled_codecs(&mut codecs);
+        codecs.register_all::<symphonia_adapter_libopus::OpusDecoder>();
+        codecs
+    });
     let (track, mut decoder) = format
         .tracks()
         .iter()

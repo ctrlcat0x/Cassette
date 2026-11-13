@@ -145,16 +145,28 @@ fn prune_metadata(directory: &Path, budget: u64, current: &Path) -> Result<()> {
 }
 pub fn cached_audio(id: &str) -> Option<(PathBuf, StreamQuality, f64)> {
     validate_video_id(id).ok()?;
-    let directory = audio_directory();
-    let index = read_index(&directory).ok()?;
+    lookup_audio(&audio_directory(), id)
+}
+fn lookup_audio(directory: &Path, id: &str) -> Option<(PathBuf, StreamQuality, f64)> {
+    let path = audio_path(directory, id);
+    // A stream cache miss only needs one file lookup, even in a large library.
+    let metadata = fs::metadata(&path).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    let index = read_index(directory).ok()?;
     let entry = index.entries.get(id)?;
-    let path = audio_path(&directory, id);
-    (valid(entry, &path, now())).then(|| (path, entry.quality.clone(), entry.track.duration as f64))
+    valid_metadata(entry, &metadata, now())
+        .then(|| (path, entry.quality.clone(), entry.track.duration as f64))
 }
 fn valid(entry: &CachedAudio, path: &Path, time: u64) -> bool {
+    fs::metadata(path).is_ok_and(|metadata| valid_metadata(entry, &metadata, time))
+}
+fn valid_metadata(entry: &CachedAudio, metadata: &fs::Metadata, time: u64) -> bool {
     entry.expires.is_none_or(|expiry| expiry > time)
         && entry.bytes > 0
-        && fs::metadata(path).is_ok_and(|m| m.len() == entry.bytes)
+        && metadata.is_file()
+        && metadata.len() == entry.bytes
 }
 pub fn offline_tracks() -> Vec<Track> {
     let directory = audio_directory();
@@ -689,4 +701,47 @@ pub fn prune_artwork(protected: &HashSet<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_audio_requires_matching_media_and_index() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let directory = temp.path();
+        let id = "abcdefghijk";
+        let path = audio_path(directory, id);
+        let mut track = Track::song(id, "Cached track", "Artist");
+        track.duration = 42;
+        let mut index = AudioIndex::default();
+        index.entries.insert(
+            id.into(),
+            CachedAudio {
+                pinned: true,
+                track,
+                bytes: 3,
+                last_used: now(),
+                expires: None,
+                quality: StreamQuality::default(),
+            },
+        );
+        let index_path = directory.join("index.json");
+        write_json(&index_path, &index)?;
+        assert!(lookup_audio(directory, id).is_none());
+
+        fs::write(&path, [0, 1])?;
+        assert!(lookup_audio(directory, id).is_none());
+
+        fs::write(&path, [0, 1, 2])?;
+        let (cached_path, _, duration) = lookup_audio(directory, id).unwrap();
+        assert_eq!(cached_path, path);
+        assert_eq!(duration, 42.);
+
+        index.entries.get_mut(id).unwrap().expires = Some(0);
+        write_json(&index_path, &index)?;
+        assert!(lookup_audio(directory, id).is_none());
+        Ok(())
+    }
 }
