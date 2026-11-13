@@ -114,13 +114,16 @@ pub fn artist_backdrop(image: &DynamicImage) -> DynamicImage {
         .resize_exact(width, height, FilterType::Triangle)
         .to_rgb8();
     let mut result = clear.to_rgb8();
-    for (x, y, pixel) in result.enumerate_pixels_mut() {
+    for (y, (clear_row, soft_row)) in result.rows_mut().zip(soft.rows()).enumerate() {
         let amount = ((y as f32 / (height - 1) as f32 - 0.32) / 0.58).clamp(0., 1.);
+        if amount == 0. {
+            continue;
+        }
         let amount = amount * amount * (3. - 2. * amount);
-        for channel in 0..3 {
-            pixel.0[channel] = (pixel.0[channel] as f32 * (1. - amount)
-                + soft.get_pixel(x, y).0[channel] as f32 * amount)
-                .round() as u8;
+        for (clear, soft) in clear_row.zip(soft_row) {
+            for (clear, soft) in clear.0.iter_mut().zip(soft.0) {
+                *clear = (*clear as f32 * (1. - amount) + soft as f32 * amount).round() as u8;
+            }
         }
     }
     DynamicImage::ImageRgb8(result)
