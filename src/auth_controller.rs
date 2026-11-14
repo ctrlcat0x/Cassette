@@ -385,8 +385,9 @@ fn capture(shared: &Shared, epoch: u64) -> Result<SessionMaterial> {
     });
     let started = Instant::now();
     loop {
-        if shared.attempt.load(Ordering::Acquire) != epoch
-            || started.elapsed() > Duration::from_secs(16 * 60)
+        let canceled = shared.attempt.load(Ordering::Acquire) != epoch;
+        if canceled
+            || started.elapsed() > crate::login_helper::LOGIN_TIMEOUT + Duration::from_secs(15)
         {
             drop(child.stdin.take()); // EOF requests graceful teardown of the native browser.
             let deadline = Instant::now() + Duration::from_secs(2);
@@ -395,7 +396,11 @@ fn capture(shared: &Shared, epoch: u64) -> Result<SessionMaterial> {
             }
             let _ = child.kill();
             let _ = child.wait();
-            bail!("Sign-in canceled");
+            return Err(if canceled {
+                raag::auth::LoginCanceled.into()
+            } else {
+                SignInFailure::VerificationTimeout.into()
+            });
         }
         match child.try_wait() {
             Ok(Some(status)) => {

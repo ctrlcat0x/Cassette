@@ -4,8 +4,6 @@ use raag::auth::{
     BrowserCookie, CookieJar, LoginReply, SessionMaterial, SignInFailure, completion_url,
 };
 use std::{
-    cell::Cell,
-    rc::Rc,
     sync::mpsc,
     time::{Duration, Instant},
 };
@@ -15,7 +13,10 @@ use tao::{
     platform::run_return::EventLoopExtRunReturn,
     window::WindowBuilder,
 };
-use wry::{PageLoadEvent, WebContext, WebViewBuilder};
+use wry::{WebContext, WebViewBuilder};
+
+const CAPTURE_INTERVAL: Duration = Duration::from_millis(750);
+pub(crate) const LOGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 pub fn run(
     profile: &std::path::Path,
@@ -27,8 +28,6 @@ pub fn run(
         .with_title("Sign in to YouTube Music · Cassette")
         .with_inner_size(tao::dpi::LogicalSize::new(520., 760.))
         .build(&event_loop)?;
-    let landed = Rc::new(Cell::new(false));
-    let signal = landed.clone();
     let builder = WebViewBuilder::new_with_web_context(&mut context)
         .with_incognito(true)
         .with_devtools(false)
@@ -39,11 +38,7 @@ pub fn run(
                 "consent.youtube.com" | "www.youtube.com" | "youtube.com" | "www.google.com" |
                 "myaccount.google.com" | "consent.google.com" | "policies.google.com")))
         }))
-        .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
-        .with_on_page_load_handler(move |event, url| {
-            // Coalesced signal only. Never read native cookies from the page-load callback.
-            if matches!(event, PageLoadEvent::Finished) && completion_url(&url) { signal.set(true); }
-        });
+        .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny);
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     let webview = builder
         .build(&window)
@@ -60,13 +55,14 @@ pub fn run(
     };
     let started = Instant::now();
     let mut next_capture = Instant::now();
-    let mut captures = 0;
+    let mut landing = None;
     let mut captured = None;
-    let (validated, validation) = mpsc::sync_channel::<Result<SessionMaterial, SignInFailure>>(1);
+    let (validated, validation) =
+        mpsc::sync_channel::<(Instant, Result<SessionMaterial, SignInFailure>)>(1);
     let mut checking = false;
     let mut gate = ValidationGate::new(Instant::now());
     event_loop.run_return(|event, _, control_flow| {
-        *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(250));
+        *control_flow = ControlFlow::WaitUntil(next_capture);
         if let Event::WindowEvent {
             event: WindowEvent::CloseRequested,
             ..
@@ -75,14 +71,44 @@ pub fn run(
             *control_flow = ControlFlow::Exit;
             return;
         }
-        if parent_closed.load(std::sync::atomic::Ordering::Acquire)
-            || started.elapsed() > Duration::from_secs(15 * 60)
-        {
+        if parent_closed.load(std::sync::atomic::Ordering::Acquire) {
             *control_flow = ControlFlow::Exit;
             return;
         }
-        if let Ok(result) = validation.try_recv() {
+        if started.elapsed() >= LOGIN_TIMEOUT {
+            let failure = if landing.is_some() {
+                SignInFailure::Timeout
+            } else {
+                SignInFailure::VerificationTimeout
+            };
+            captured = Some(LoginReply::Failed(failure));
+            *control_flow = ControlFlow::Exit;
+            return;
+        }
+        // Check the actual destination even if the document never finishes loading.
+        // Cookie APIs run on the event loop, outside WebView callbacks.
+        if !matches!(event, Event::MainEventsCleared) || Instant::now() < next_capture {
+            return;
+        }
+        let now = Instant::now();
+        next_capture = now + CAPTURE_INTERVAL;
+        *control_flow = ControlFlow::WaitUntil(next_capture);
+        let url = webview.url().unwrap_or_default();
+        let on_music = completion_url(&url);
+        if on_music {
+            if landing.is_none() {
+                landing = Some(now);
+                gate = ValidationGate::new(now);
+                window.set_title("Finishing YouTube Music sign-in · Cassette");
+            }
+        } else if landing.take().is_some() {
+            window.set_title("Sign in to YouTube Music · Cassette");
+        }
+        if let Ok((checked_landing, result)) = validation.try_recv() {
             checking = false;
+            if landing != Some(checked_landing) {
+                return;
+            }
             match result {
                 Ok(material) => {
                     captured = Some(LoginReply::Validated(material));
@@ -99,16 +125,10 @@ pub fn run(
                 }
             }
         }
-        if matches!(event, Event::MainEventsCleared)
-            && landed.get()
-            && !checking
-            && Instant::now() >= next_capture
-        {
-            next_capture = Instant::now() + Duration::from_millis(750);
-            captures += 1;
-            if !webview.url().is_ok_and(|url| completion_url(&url)) {
-                landed.set(false);
-                gate = ValidationGate::new(Instant::now());
+        if !checking && let Some(landed_at) = landing {
+            if now.duration_since(landed_at) >= Duration::from_secs(60) {
+                captured = Some(LoginReply::Failed(SignInFailure::CookieCapture));
+                *control_flow = ControlFlow::Exit;
                 return;
             }
             if let Ok(cookies) = webview.cookies() {
@@ -132,7 +152,8 @@ pub fn run(
                     })
                     .collect();
                 if let Ok(jar) = CookieJar::new(cookies) {
-                    let fingerprint = raag::cache::key(jar.header().as_str());
+                    // Unrelated cookie rotation should not postpone account validation.
+                    let fingerprint = raag::cache::key(jar.auth_value().unwrap_or_default());
                     if gate.ready(&fingerprint, Instant::now()) {
                         checking = true;
                         window.set_title("Checking YouTube Music account · Cassette");
@@ -144,14 +165,10 @@ pub fn run(
                                     .copied()
                                     .unwrap_or(SignInFailure::InvalidResponse)
                             });
-                            let _ = validated.send(result);
+                            let _ = validated.send((landed_at, result));
                         });
                     }
                 }
-            }
-            if captures >= 80 {
-                captured = Some(LoginReply::Failed(SignInFailure::CookieCapture));
-                *control_flow = ControlFlow::Exit;
             }
         }
     });
@@ -229,5 +246,35 @@ pub fn main() -> i32 {
         }
         Err(error) if error.is::<raag::auth::LoginCanceled>() => 2,
         Err(_) => 3, // Do not emit remote URLs, page content or cookies to stderr.
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validation_waits_for_stable_credentials_and_bounds_retries() {
+        let start = Instant::now();
+        let mut gate = ValidationGate::new(start);
+        assert!(!gate.ready("first", start));
+        assert!(!gate.ready("updated", start + CAPTURE_INTERVAL));
+        assert!(!gate.ready("updated", start + 2 * CAPTURE_INTERVAL));
+        let settled = start + 3 * CAPTURE_INTERVAL;
+        assert!(gate.ready("updated", settled));
+        assert!(!gate.ready("updated", settled + CAPTURE_INTERVAL));
+        assert!(gate.ready("updated", settled + Duration::from_secs(2)));
+        assert!(gate.ready("updated", settled + Duration::from_secs(4)));
+        assert!(!gate.ready("updated", settled + Duration::from_secs(6)));
+    }
+
+    #[test]
+    fn account_challenges_are_not_treated_as_music_landings() {
+        assert!(!completion_url(
+            "https://accounts.google.com/v3/signin/challenge"
+        ));
+        assert!(!completion_url("https://music.youtube.com.example.org/"));
+        assert!(!completion_url("https://music.youtube.com:8443/"));
+        assert!(completion_url("https://music.youtube.com/"));
     }
 }

@@ -60,6 +60,7 @@ impl std::error::Error for LoginCanceled {}
 /// Safe failure categories: never contain cookies, response bodies, URLs or account details.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SignInFailure {
+    VerificationTimeout,
     Network,
     Timeout,
     Http(u16),
@@ -74,6 +75,7 @@ pub enum SignInFailure {
 impl SignInFailure {
     pub fn code(self) -> &'static str {
         match self {
+            Self::VerificationTimeout => "verification_timeout",
             Self::Network => "validation_network",
             Self::Timeout => "validation_timeout",
             Self::Http(_) => "validation_http",
@@ -100,6 +102,7 @@ impl SignInFailure {
 impl std::fmt::Display for SignInFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::VerificationTimeout => f.write_str("Google sign-in did not finish in time. Approve the prompt on your phone or choose another verification method in the Google window. You can also import a YouTube cookie file in Settings."),
             Self::Network => f.write_str("YouTube Music could not be reached. Check your connection and retry."),
             Self::Timeout => f.write_str("YouTube Music timed out. Retry the request."),
             Self::Http(status) => write!(f, "YouTube Music rejected the request (HTTP {status}). Retry the request."),
