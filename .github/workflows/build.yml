@@ -93,8 +93,36 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Copy-Item target/release/cassette.exe dist/cassette-windows-x64.exe
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $compiler "/DAppVersion=$version" packaging/cassette.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
+
+      - name: Smoke test Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'Cassette-install-smoke'
+          $setup = Start-Process -FilePath dist/cassette-windows-x64-setup.exe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=`"$dir`" /TASKS=startmenu,desktop" -WindowStyle Hidden -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Cassette install failed with exit code $($setup.ExitCode)" }
+          $shell = New-Object -ComObject WScript.Shell
+          $shortcuts = @('DesktopDirectory', 'Programs') | ForEach-Object {
+            Join-Path ([Environment]::GetFolderPath($_)) 'Cassette.lnk'
+          }
+          foreach ($shortcut in $shortcuts) {
+            if (!(Test-Path -LiteralPath $shortcut) -or $shell.CreateShortcut($shortcut).TargetPath -ne "$dir\cassette.exe") {
+              throw "Missing or invalid shortcut $shortcut"
+            }
+          }
+          $env:RAAG_DATA_DIR = Join-Path $env:RUNNER_TEMP 'cassette-installed-runtime'
+          & "$dir\cassette.exe" --verify-runtime | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw "Installed playback runtime verification failed" }
+          $uninstall = Start-Process -FilePath "$dir\unins000.exe" -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -WindowStyle Hidden -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Cassette uninstall failed with exit code $($uninstall.ExitCode)" }
+          foreach ($path in (@("$dir\cassette.exe") + $shortcuts)) {
+            if (Test-Path -LiteralPath $path) { throw "Uninstall left $path behind" }
+          }
 
       - name: Package macOS
         if: runner.os == 'macOS'
@@ -224,7 +252,7 @@ jobs:
           prerelease=false
           latest=true
           if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=true; latest=false; fi
-          assets=(dist/cassette-windows-x64.exe dist/cassette-macos-arm64.dmg dist/cassette-linux-x64.deb)
+          assets=(dist/cassette-windows-x64-setup.exe dist/cassette-macos-arm64.dmg dist/cassette-linux-x64.deb)
           for asset in "${assets[@]}"; do test -s "$asset"; done
           notes=".github/release-notes/${RELEASE_TAG}.md"
           if [[ ! -s "$notes" ]]; then

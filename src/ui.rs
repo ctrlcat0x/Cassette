@@ -3257,12 +3257,8 @@ impl Raag {
             ("explore", t("Explore"), "compass", Screen::Explore),
             ("library", t("Your library"), "library", Screen::Library),
             ("liked", t("Liked songs"), "heart", Screen::Liked),
-            ("local", t("Local files"), "folder", Screen::Local),
-            ("offline", t("Offline music"), "download", Screen::Offline),
         ] {
-            let selected = self.screen == screen
-                || (screen == Screen::Local
-                    && matches!(self.screen, Screen::LocalSongs | Screen::LocalAlbum(..)));
+            let selected = self.screen == screen;
             navigation = navigation.child(
                 Button::new(id)
                     .ghost()
@@ -5233,10 +5229,7 @@ impl Render for Raag {
                     input.focus(window, cx);
                 });
             }))
-            .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
-                this.shell_motion.snap_next();
-                this.toggle_sidebar(cx);
-            }))
+            .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
             .on_action(cx.listener(|this, _: &SignIn, _, cx| this.sign_in(cx)))
             .on_action(cx.listener(|this, _: &SignOut, _, cx| this.sign_out(cx)))
             .on_action(cx.listener(|this, _: &CancelSignIn, _, cx| {

@@ -10,7 +10,7 @@ Cassette brings YouTube Music and your local music collection together in a nati
 
 | Platform | Install |
 | --- | --- |
-| Windows x64 | Run `cassette-windows-x64.exe`. Sign-in requires Microsoft Edge WebView2. |
+| Windows x64 | Run `cassette-windows-x64-setup.exe` and choose your Start menu and desktop shortcuts. Sign-in requires Microsoft Edge WebView2. |
 | macOS Apple Silicon | Open the DMG and drag Cassette into Applications. The build is ad-hoc signed. |
 | Linux x64 | On Ubuntu 24.04, run `sudo apt install ./cassette-linux-x64.deb`. |
 
