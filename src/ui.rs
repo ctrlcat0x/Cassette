@@ -572,9 +572,9 @@ impl Raag {
         saved_art.extend(
             library
                 .stats
-                .top_tracks()
+                .top_tracks(5)
+                .0
                 .into_iter()
-                .take(5)
                 .map(|entry| entry.track.clone()),
         );
         fetch_artwork(saved_art, backend.events_sender.clone());
@@ -1457,11 +1457,12 @@ impl Raag {
                         .collect();
                     let found = !tracks.is_empty();
                     let mut count = 0;
+                    let local = Arc::make_mut(&mut self.library.local);
                     for track in tracks {
                         if let Some(&index) = indices.get(&track.id) {
-                            self.library.local[index] = track;
+                            local[index] = track;
                         } else if !previous.contains(&track.id) {
-                            self.library.local.push(track);
+                            local.push(track);
                             count += 1;
                         }
                     }
@@ -1861,7 +1862,7 @@ impl Raag {
             Screen::Liked | Screen::Library => Arc::new(self.library.liked.clone()),
             Screen::Recents => Arc::new(self.recent_tracks()),
             Screen::Local => Arc::new(Vec::new()),
-            Screen::LocalSongs => Arc::new(self.library.local.clone()),
+            Screen::LocalSongs => self.library.local.clone(),
             Screen::LocalAlbum(key, _) => Arc::new(self.library.local_album_tracks(key)),
             Screen::Offline => self.offline.clone(),
             Screen::Search(query) => {
@@ -2463,7 +2464,10 @@ impl Raag {
         std::thread::spawn(move || {
             let mut scanned = Library::default();
             scanned.import_paths(&paths);
-            let _ = sender.send(Event::LocalScan(scanned.local_folders, scanned.local));
+            let _ = sender.send(Event::LocalScan(
+                scanned.local_folders,
+                Arc::unwrap_or_clone(scanned.local),
+            ));
         });
         self.content_revision += 1;
         cx.notify();

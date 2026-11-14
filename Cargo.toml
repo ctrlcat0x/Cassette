@@ -1,6 +1,6 @@
 [package]
 name = "raag"
-version = "1.6.0"
+version = "1.7.0"
 edition = "2024"
 description = "A native, keyboard-friendly music player built with Rust and GPUI"
 license = "MIT"
@@ -20,7 +20,7 @@ symphonia-adapter-libopus = "=0.2.9"
 rubato = { version = "=0.16.2", default-features = false }
 gpui-kit = "=0.7.1"
 anyhow = "1"
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 roxmltree = "0.21"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "gzip"] }

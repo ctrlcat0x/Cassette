@@ -106,7 +106,7 @@ fn bundle_runtime(root: &Path) {
     files.dedup_by(|left, right| left.1 == right.1);
     let payload = output.join("runtime.zst");
     let mut compressed =
-        zstd::stream::write::Encoder::new(fs::File::create(&payload).unwrap(), 15).unwrap();
+        zstd::stream::write::Encoder::new(fs::File::create(&payload).unwrap(), 19).unwrap();
     // Keep first-launch decoder memory bounded independently of bundle size.
     compressed.window_log(22).unwrap();
     compressed.include_checksum(true).unwrap();

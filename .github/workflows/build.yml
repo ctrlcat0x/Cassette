@@ -140,7 +140,7 @@ jobs:
           ln -s /Applications dist/stage/Applications
           created=false
           for attempt in 1 2 3; do
-            if hdiutil create -volname Cassette -srcfolder dist/stage -ov -fs HFS+ -format UDZO dist/cassette-macos-arm64.dmg; then
+            if hdiutil create -volname Cassette -srcfolder dist/stage -ov -fs HFS+ -format UDZO -imagekey zlib-level=9 dist/cassette-macos-arm64.dmg; then
               created=true
               break
             fi

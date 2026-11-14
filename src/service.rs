@@ -661,13 +661,21 @@ pub fn fetch_artwork(tracks: Vec<Track>, events: SyncSender<Event>) {
 pub fn cache_artwork(track: &Track, events: SyncSender<Event>) {
     let tracks = restore_artwork(vec![track.clone()], &events);
     if !tracks.is_empty()
-        && let Ok(client) = reqwest::blocking::Client::builder()
+        && let Some(client) = artwork_client()
+    {
+        artwork_job(tracks, events, client);
+    }
+}
+fn artwork_client() -> Option<&'static reqwest::blocking::Client> {
+    static HTTP: OnceLock<Option<reqwest::blocking::Client>> = OnceLock::new();
+    HTTP.get_or_init(|| {
+        reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(6))
             .connect_timeout(Duration::from_secs(2))
             .build()
-    {
-        artwork_job(tracks, events, &client);
-    }
+            .ok()
+    })
+    .as_ref()
 }
 pub fn fetch_visible_artwork(tracks: Vec<Track>, events: SyncSender<Event>) {
     submit_artwork(tracks, events, 0);
@@ -685,11 +693,7 @@ fn submit_artwork(tracks: Vec<Track>, events: SyncSender<Event>, priority: u8) {
         for _ in 0..2 {
             let queue = queue.clone();
             thread::spawn(move || {
-                let Ok(client) = reqwest::blocking::Client::builder()
-                    .timeout(Duration::from_secs(6))
-                    .connect_timeout(Duration::from_secs(2))
-                    .build()
-                else {
+                let Some(client) = artwork_client() else {
                     return;
                 };
                 loop {
@@ -702,7 +706,7 @@ fn submit_artwork(tracks: Vec<Track>, events: SyncSender<Event>, priority: u8) {
                     drop(jobs);
                     // Yield between network images so
                     // newly selected songs/pages take priority over an old shelf.
-                    artwork_job(vec![track], events, &client);
+                    artwork_job(vec![track], events, client);
                 }
             });
         }

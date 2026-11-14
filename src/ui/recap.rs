@@ -11,7 +11,7 @@ impl Raag {
                 .period(if self.recap_period == 1 { 30 } else { 365 })
         });
         let stats = period.as_ref().unwrap_or(&self.library.stats);
-        let top = stats.top_tracks();
+        let (top, song_count) = stats.top_tracks(5);
         let artists = stats.ranking(true);
         let albums = stats.ranking(false);
         let mut poster = div()
@@ -75,7 +75,7 @@ impl Raag {
                     t("Minutes listened"),
                     foreground,
                 ))
-                .child(self.recap_metric(&top.len().to_string(), t("Songs"), foreground))
+                .child(self.recap_metric(&song_count.to_string(), t("Songs"), foreground))
                 .child(self.recap_metric(&artists.len().to_string(), t("Artists"), foreground)),
         );
         if let Some(favourite) = top.first() {
@@ -87,7 +87,6 @@ impl Raag {
                 .when(compact, |div| div.flex_col());
             let songs: Vec<_> = top
                 .iter()
-                .take(5)
                 .map(|entry| (entry.track.title.clone(), entry.seconds))
                 .collect();
             for (title, entries, artist) in [

@@ -631,8 +631,7 @@ impl Raag {
                 }
             }
             Screen::LocalSongs | Screen::LocalAlbum(..) => {
-                self.library
-                    .local
+                Arc::make_mut(&mut self.library.local)
                     .retain(|t| !self.selected_rows.contains(&Self::row_key(t)));
                 self.local_albums = Arc::new(self.library.local_albums());
                 self.save();

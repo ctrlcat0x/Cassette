@@ -657,7 +657,7 @@ pub fn maintain_artwork() -> Result<()> {
     for track in offline_tracks()
         .iter()
         .chain(&library.liked)
-        .chain(&library.local)
+        .chain(library.local.iter())
         .chain(library.playlists.iter().flat_map(|p| &p.tracks))
     {
         if let Some(url) = &track.artwork {

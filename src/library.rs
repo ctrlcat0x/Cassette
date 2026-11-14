@@ -8,6 +8,7 @@ use std::{
     fs,
     io::{Cursor, Read},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -85,7 +86,7 @@ pub struct Library {
     pub playlist_order: Vec<String>,
     pub liked: Vec<Track>,
     pub history: Vec<Track>,
-    pub local: Vec<Track>,
+    pub local: Arc<Vec<Track>>,
     pub playlists: Vec<Playlist>,
     pub volume: f64,
     pub sidebar: bool,
@@ -124,7 +125,7 @@ impl Default for Library {
             playlist_order: vec![],
             liked: vec![],
             history: vec![],
-            local: vec![],
+            local: Default::default(),
             playlists: vec![],
             volume: 70.,
             sidebar: true,
@@ -354,7 +355,7 @@ impl Library {
                         .or_insert_with(|| folder_cover(folder))
                         .clone();
                 }
-                self.local.push(track);
+                Arc::make_mut(&mut self.local).push(track);
             }
         }
         self.local.len() - before
@@ -362,7 +363,7 @@ impl Library {
 
     pub fn local_albums(&self) -> Vec<LocalAlbum> {
         let mut albums = HashMap::new();
-        for track in &self.local {
+        for track in self.local.iter() {
             let key = LocalAlbumKey::for_track(track);
             let artist = track
                 .local_metadata
@@ -510,4 +511,39 @@ pub fn data_dir() -> PathBuf {
 
 pub fn local_only(track: &Track) -> bool {
     track.kind == ItemKind::Local
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shared_library_and_queue_keep_the_existing_json_format() -> Result<()> {
+        let mut library: Library = serde_json::from_value(serde_json::json!({
+            "local": [{"id": "local.wav", "title": "Local", "artist": "", "album": "", "duration": 0, "kind": "Local"}],
+            "session": {
+                "queue": {
+                    "tracks": [{"id": "abcdefghijk", "title": "Queued", "artist": "", "album": "", "duration": 0, "kind": "Song"}],
+                    "order": [0],
+                    "cursor": 0,
+                    "repeat": "Off",
+                    "shuffle": false
+                },
+                "position": 0
+            }
+        }))?;
+        let snapshot = library.clone();
+        assert!(Arc::ptr_eq(&library.local, &snapshot.local));
+
+        Arc::make_mut(&mut library.local).clear();
+        library.session.queue.set_duration("abcdefghijk", 42);
+        assert_eq!(snapshot.local[0].title, "Local");
+        assert_eq!(snapshot.session.queue.current().unwrap().duration, 0);
+        assert_eq!(library.session.queue.current().unwrap().duration, 42);
+
+        let saved = serde_json::to_value(snapshot)?;
+        assert_eq!(saved["local"][0]["id"], "local.wav");
+        assert_eq!(saved["session"]["queue"]["tracks"][0]["id"], "abcdefghijk");
+        Ok(())
+    }
 }

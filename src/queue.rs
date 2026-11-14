@@ -1,6 +1,7 @@
 use crate::Track;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Repeat {
@@ -22,7 +23,7 @@ impl Repeat {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Queue {
-    tracks: Vec<Track>,
+    tracks: Arc<Vec<Track>>,
     order: Vec<usize>,
     cursor: Option<usize>,
     pub repeat: Repeat,
@@ -72,7 +73,17 @@ impl Queue {
         self.order.len()
     }
     pub fn set_duration(&mut self, id: &str, duration: u64) {
-        for track in self.tracks.iter_mut().filter(|track| track.id == id) {
+        if !self
+            .tracks
+            .iter()
+            .any(|track| track.id == id && track.duration != duration)
+        {
+            return;
+        }
+        for track in Arc::make_mut(&mut self.tracks)
+            .iter_mut()
+            .filter(|track| track.id == id)
+        {
             track.duration = duration;
         }
     }
@@ -95,7 +106,7 @@ impl Queue {
         });
     }
     fn replace_matching(&mut self, tracks: Vec<Track>, selected: impl Fn(&Track) -> bool) {
-        self.tracks = tracks.into_iter().filter(Track::playable).collect();
+        self.tracks = Arc::new(tracks.into_iter().filter(Track::playable).collect());
         self.order = (0..self.tracks.len()).collect();
         self.cursor = self
             .tracks
@@ -196,7 +207,7 @@ impl Queue {
             return;
         }
         let ix = self.tracks.len();
-        self.tracks.push(track);
+        Arc::make_mut(&mut self.tracks).push(track);
         let position = if next {
             self.cursor.map_or(self.order.len(), |cursor| cursor + 1)
         } else {
@@ -213,7 +224,7 @@ impl Queue {
             return false;
         }
         let removed = self.order.remove(position);
-        self.tracks.remove(removed);
+        Arc::make_mut(&mut self.tracks).remove(removed);
         for index in &mut self.order {
             if *index > removed {
                 *index -= 1;
@@ -271,7 +282,7 @@ impl Queue {
         }
         let mut old = 0;
         let mut next = 0;
-        self.tracks.retain(|_| {
+        Arc::make_mut(&mut self.tracks).retain(|_| {
             let keep = remap[old] != usize::MAX;
             if keep {
                 remap[old] = next;

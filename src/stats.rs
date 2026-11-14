@@ -76,14 +76,21 @@ impl ListeningStats {
             false
         }
     }
-    pub fn top_tracks(&self) -> Vec<&TrackStats> {
+    /// Return the requested top tracks and the total number of listened tracks.
+    pub fn top_tracks(&self, limit: usize) -> (Vec<&TrackStats>, usize) {
         let mut tracks: Vec<_> = self.tracks.values().filter(|t| t.seconds > 0.).collect();
-        tracks.sort_by(|a, b| {
+        let count = tracks.len();
+        let compare = |a: &&TrackStats, b: &&TrackStats| {
             b.seconds
                 .total_cmp(&a.seconds)
                 .then(a.track.id.cmp(&b.track.id))
-        });
-        tracks
+        };
+        if limit < count {
+            tracks.select_nth_unstable_by(limit, compare);
+            tracks.truncate(limit);
+        }
+        tracks.sort_unstable_by(compare);
+        (tracks, count)
     }
     pub fn ranking(&self, artist: bool) -> Vec<(String, f64)> {
         let mut totals = HashMap::<String, (String, f64, u64)>::new();
@@ -137,12 +144,13 @@ impl ListeningStats {
         if days == 0 {
             return Self::default();
         }
-        let first = (crate::cache::now() / 86400).saturating_sub(days.saturating_sub(1));
+        let today = crate::cache::now() / 86400;
+        let first = today.saturating_sub(days.saturating_sub(1));
         let mut result = Self::default();
         for record in self
             .days
             .iter()
-            .filter(|record| record.day >= first && record.day <= crate::cache::now() / 86400)
+            .filter(|record| record.day >= first && record.day <= today)
         {
             for (id, seconds) in &record.seconds {
                 if let Some(original) = self.tracks.get(id) {
